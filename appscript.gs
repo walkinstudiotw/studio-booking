@@ -1,5 +1,5 @@
 // ═════════════════════════════════════════════════════════════
-// WalkIn 會議室預約 — 同步後端（Google Apps Script）
+// WalkIn 水星錄音室預約 — 同步後端（Google Apps Script）
 // ─────────────────────────────────────────────────────────────
 // 功能（每 1 分鐘由時間觸發器執行 syncTick）：
 //  1. 自動確認「使用時數」的會員預約（驗時數批次、開放時段、衝突）
@@ -9,8 +9,9 @@
 //  4. Email 通知：新申請通知管理員；確認/婉拒通知預約人
 //
 // ── 部署步驟 ──
-// 0) 用【housecoworking.co@gmail.com】登入 script.google.com 建立專案
+// 0) 用【walkinstudiotw@gmail.com】登入 script.google.com 建立專案
 //    （GmailApp 以專案擁有者寄信 → 所有通知信會由此帳號寄出）
+//    ※ 這是錄音室專用的獨立專案，與會議室（meeting-room）的 Apps Script 分開
 // 1) 貼上本檔為 Code.gs，儲存
 // 2) 專案設定 → 指令碼屬性（Script Properties）新增 5 筆：
 //      FB_EMAIL    = walkinstudiotw@gmail.com      ← Firebase 資料庫管理員（與寄信無關，不要改）
@@ -19,16 +20,16 @@
 //      DB_URL      = https://talkloudpm-default-rtdb.asia-southeast1.firebasedatabase.app
 //      ADMIN_EMAIL = <接收「待審核/新會員」通知的信箱>
 // 3) 專案設定 → 時區改為 (GMT+08:00) 台北（重要！事件時間依此解讀）
-// 4) 日曆共用：會議室日曆（後台設定裡的日曆 ID）必須分享給
-//    housecoworking.co@gmail.com 並給「進行變更」權限，該帳號才能同步事件
+// 4) 日曆：為錄音室另建一個 Google 日曆，把日曆 ID 填到後台「設定」；
+//    若日曆不是 walkinstudiotw@gmail.com 自己的，需分享給該帳號並給「進行變更」權限
 // 5) 編輯器執行 testConnection 完成授權（Calendar + Gmail + 外部連線），
 //    記錄應顯示 settings 內容與日曆名稱
 // 6) 執行 installTrigger 安裝每 1 分鐘觸發器
 // （日曆 ID 與事件格式存在網頁後台「設定」，此處不用設）
 // ═════════════════════════════════════════════════════════════
 
-var ROOT = 'meeting-room';
-var TAG_KEY = 'wkroom';
+var ROOT = 'walkin-studio';
+var TAG_KEY = 'wkstudio';
 
 function props_() { return PropertiesService.getScriptProperties(); }
 
@@ -84,7 +85,6 @@ function dateAt_(dateStr, minutes) {
   var p = dateStr.split('-');
   return new Date(+p[0], +p[1] - 1, +p[2], 0, minutes);
 }
-function monthEnd_(y, mo) { return y + '-' + pad_(mo + 1) + '-' + pad_(new Date(y, mo + 1, 0).getDate()); }
 function safeKey_(s) { return String(s).replace(/[^A-Za-z0-9_-]/g, ''); }
 function renderTpl_(tpl, b) {
   var typeZh = b.kind === 'm' ? '會員' : b.kind === 'v' ? '訪客' : '日曆';
@@ -98,13 +98,13 @@ function renderTpl_(tpl, b) {
     .replace(/\{time\}/g, fmtT_(b.s) + '–' + fmtT_(b.e));
 }
 
-// ── 時數批次制（與網頁端同一套規則） ──
-function buildGrants_(quota, grantsObj, today) {
+// ── 會員類型（錄音室版本：兩種儲值會員，皆無月額度）──
+var MEMBER_TYPES = { program: '新節目儲值', general: '一般方案儲值' };
+function memType_(t) { return MEMBER_TYPES[t] ? t : 'general'; }
+
+// ── 時數批次制（與網頁端同一套規則；無每月自動額度，只有手動儲值批次） ──
+function buildGrants_(grantsObj) {
   var list = [];
-  for (var k = 0; k < 2; k++) {
-    var d = new Date(today.getFullYear(), today.getMonth() + k, 1);
-    if (quota > 0) list.push({ h: quota, start: fmtD_(d), exp: monthEnd_(d.getFullYear(), d.getMonth()) });
-  }
   for (var gid in (grantsObj || {})) {
     var g = grantsObj[gid];
     list.push({ h: g.h, start: g.start, exp: g.exp });
@@ -161,8 +161,8 @@ function syncTick() {
 }
 
 // 0) 邀請連結 → 自動開通會員
-var SITE_URL = 'https://walkinstudiotw.github.io/meeting-room/';
-var CANCEL_NOTIFY = 'housecoworking.co@gmail.com'; // 取消通知收件人
+var SITE_URL = 'https://walkinstudiotw.github.io/studio-booking/';
+var CANCEL_NOTIFY = 'walkinstudiotw@gmail.com'; // 取消通知收件人
 function processApplications_(settings, upd) {
   var apps = fbGet('applications') || {};
   var any = false; for (var k in apps) { any = true; break; }
@@ -171,7 +171,7 @@ function processApplications_(settings, upd) {
   var members = fbGet('members') || {};
   var index = fbGet('memberIndex') || {};
   var adminMail = props_().getProperty('ADMIN_EMAIL') || props_().getProperty('FB_EMAIL');
-  var room = settings.roomName || '會議室';
+  var room = settings.roomName || '錄音室';
   for (var token in apps) {
     var app = apps[token];
     var inv = invites[token];
@@ -187,18 +187,18 @@ function processApplications_(settings, upd) {
     }
     var code = 'M' + Date.now().toString(36).toUpperCase();
     while (members[code]) code = 'M' + (Date.now() + Math.floor(Math.random() * 1e6)).toString(36).toUpperCase();
-    var type = inv.type === 'prepaid' ? 'prepaid' : 'monthly';
-    var quota = type === 'prepaid' ? 0 : (inv.quota || 0);
+    var type = memType_(inv.type);
+    var quota = 0; // 無月額度
     upd['members/' + code] = { name: app.name, phone: app.phone, email: app.email || '', quota: quota, active: true, type: type, createdAt: Date.now() };
     upd['membersPublic/' + code] = { name: app.name, quota: quota, active: true, type: type };
     upd['memberIndex/' + phoneKey] = code;
     upd['invites/' + token + '/usedBy'] = code;
     upd['applications/' + token] = null;
     members[code] = {}; index[phoneKey] = code;
-    var typeZh = type === 'prepaid' ? '會議室儲值會員' : '2F月租會員';
+    var typeZh = MEMBER_TYPES[type] + '會員';
     GmailApp.sendEmail(adminMail, '【' + room + '】新會員已開通：' + app.name,
       '姓名：' + app.name + '\n電話：' + app.phone + '\nEmail：' + (app.email || '—') +
-      '\n類型：' + typeZh + (type === 'monthly' ? ('（月額度 ' + quota + 'h）') : '（請記得為其儲值時數）') +
+      '\n類型：' + typeZh + '（請記得為其儲值時數）' +
       '\n編號：' + code + '\n邀請備註：' + (inv.note || '—'), { name: room });
     if (app.email) {
       GmailApp.sendEmail(app.email, '【' + room + '】會員開通完成',
@@ -252,8 +252,7 @@ function autoConfirmMembers_(settings, bookings, schedule, today, upd) {
     }
     // 時數批次（儲值會員無月額度）；匯款單不扣時數、免檢核
     if (!reason && b.payMethod !== 'transfer') {
-      var quota = (mem.type === 'prepaid') ? 0 : (mem.quota || 0);
-      var grants = allocate_(buildGrants_(quota, grantsAll[code], today), (confirmedUses[code] || []).slice());
+      var grants = allocate_(buildGrants_(grantsAll[code]), (confirmedUses[code] || []).slice());
       var avail = availFor_(grants, b.date);
       var need = (b.e - b.s) / 60;
       if (need > avail) reason = '可用時數不足（剩 ' + avail + ' 小時）';
@@ -378,7 +377,7 @@ function importBusyBlocks_(settings, schedule, today, windowEnd, upd) {
 // 4) Email 通知
 function sendNotifications_(settings, bookings, upd) {
   var adminMail = props_().getProperty('ADMIN_EMAIL') || props_().getProperty('FB_EMAIL');
-  var room = settings.roomName || '會議室';
+  var room = settings.roomName || '錄音室';
   var rate = ((settings.payment || {}).hourlyRate) || 0;
   var membersCache = null; // 會員預約單上不帶 Email（隱私），寄信時才從會員資料查
   function emailFor_(b) {

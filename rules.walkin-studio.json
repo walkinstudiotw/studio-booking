@@ -1,6 +1,6 @@
 {
-  "_說明": "把下方 meeting-room 區塊合併進 Firebase Console → Realtime Database → 規則 的既有 rules JSON（與 walkin-pm 節點並列，不要動其他節點）。ADMIN 判斷用 email；如要更嚴可再加 auth.uid 比對。",
-  "meeting-room": {
+  "_說明": "把下方 walkin-studio 區塊（錄音室預約）合併進 Firebase Console → Realtime Database → 規則 的既有 rules JSON（與 walkin-pm、meeting-room 節點並列，不要動其他節點）。ADMIN 判斷用 email；如要更嚴可再加 auth.uid 比對。",
+  "walkin-studio": {
     ".read": "auth != null && auth.token.email === 'walkinstudiotw@gmail.com'",
     ".write": "auth != null && auth.token.email === 'walkinstudiotw@gmail.com'",
     "settings": {
@@ -55,7 +55,7 @@
     },
     "applications": {
       "$token": {
-        ".write": "!data.exists() && newData.exists() && root.child('meeting-room/invites').child($token).exists() && !root.child('meeting-room/invites').child($token).child('usedBy').exists()",
+        ".write": "!data.exists() && newData.exists() && root.child('walkin-studio/invites').child($token).exists() && !root.child('walkin-studio/invites').child($token).child('usedBy').exists()",
         ".validate": "newData.hasChildren(['name','phone','createdAt']) && newData.child('name').isString() && newData.child('name').val().length <= 50 && newData.child('phone').isString() && newData.child('phone').val().length >= 8 && newData.child('phone').val().length <= 20 && newData.child('createdAt').isNumber()",
         "name": { ".validate": true },
         "phone": { ".validate": true },
