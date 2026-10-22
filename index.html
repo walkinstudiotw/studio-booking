@@ -254,6 +254,11 @@ table.tbl{width:100%;border-collapse:collapse;font-size:14px}
 </div>
 
 <!-- grant modal -->
+<!-- member self top-up request modal -->
+<div class="modal-bg" id="modal-topup">
+  <div class="modal" id="topup-body"></div>
+</div>
+
 <div class="modal-bg" id="modal-grant">
   <div class="modal">
     <h3 id="grant-title">發放時數</h3>
@@ -351,7 +356,7 @@ const S={
   pick:null, editMemCode:null, grantCode:null,
   settings:JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), settingsLoaded:MOCK,
   schedule:{},                       // date -> {bid:{s,e,st,k}}
-  memberCode:null, memberPub:null, memberGrantsData:{}, memberBk:{},
+  memberCode:null, memberPub:null, memberGrantsData:{}, memberBk:{}, memberTopups:{}, topup:null,
   adminOn:false, adminBusy:false,
   admin:{bookings:{},members:{},grants:{},invites:{},applications:{},meta:{}},
   joinToken:null, joinState:null,
@@ -360,7 +365,7 @@ const S={
 
 // ═══════════ 資料層（Firebase / Mock 雙模式） ═══════════
 let _db=null,_auth=null;
-const mockDB={settings:null,schedule:{},bookings:{},members:{},membersPublic:{},memberIndex:{},memberGrants:{},memberBookings:{},invites:{},applications:{},meta:{}};
+const mockDB={settings:null,schedule:{},bookings:{},members:{},membersPublic:{},memberIndex:{},memberGrants:{},memberBookings:{},invites:{},applications:{},meta:{},topups:{},memberTopups:{}};
 
 function mockSet(path,val){ // path 'a/b/c'
   const seg=path.split('/');let o=mockDB;
@@ -379,10 +384,11 @@ function dbOnce(path){
 function syncMockToState(){
   S.schedule=mockDB.schedule;
   S.admin.bookings=mockDB.bookings;S.admin.members=mockDB.members;S.admin.grants=mockDB.memberGrants;S.admin.meta=mockDB.meta;
-  S.admin.invites=mockDB.invites;S.admin.applications=mockDB.applications;
+  S.admin.invites=mockDB.invites;S.admin.applications=mockDB.applications;S.admin.topups=mockDB.topups;
   if(S.memberCode){
     S.memberPub=mockDB.membersPublic[S.memberCode]||null;
     S.memberGrantsData=mockDB.memberGrants[S.memberCode]||{};
+    S.memberTopups=mockDB.memberTopups[S.memberCode]||{};
     S.memberBk=mockDB.memberBookings[S.memberCode]||{};
   }
 }
@@ -450,6 +456,7 @@ function attachAdmin(){
   _db.ref(`${ROOT}/invites`).on('value',s=>{S.admin.invites=s.val()||{};render();});
   _db.ref(`${ROOT}/applications`).on('value',s=>{S.admin.applications=s.val()||{};render();});
   _db.ref(`${ROOT}/meta`).on('value',s=>{S.admin.meta=s.val()||{};render();});
+  _db.ref(`${ROOT}/topups`).on('value',s=>{S.admin.topups=s.val()||{};render();});
   ensureSettings();
 }
 async function ensureSettings(){ // 首次使用：settings 不存在時由管理員寫入預設值
@@ -503,6 +510,9 @@ function seedMock(){
   put(D(-3),M(10),M(13),'m','confirmed','林小姐',{memberCode:'M001'});
   mockDB.memberGrants.M001={g1:{h:3,start:D(-300),exp:D(20),note:'新節目方案（快到期）',at:Date.now()-2000},g3:{h:10,start:D(-10),exp:D(355),note:'新節目方案 10 小時',at:Date.now()}};
   mockDB.memberGrants.M002={g2:{h:10,start:D(-5),exp:D(360),note:'一般方案儲值 10 小時',at:Date.now()}};
+  // 一筆待審核的線上儲值申請（示範後台「儲值申請」區）
+  mockDB.topups.tu1={code:'M002',name:'張先生',type:'general',hours:10,price:5500,amount:5775,payLast5:'45678',status:'pending',createdAt:Date.now()-7200000,invTaxId:'87654321',invTitle:'張氏工作室'};
+  mockDB.memberTopups.M002={tu1:{h:10,amount:5775,st:'pending',c:Date.now()-7200000}};
 }
 
 // ═══════════ 時數批次制 ═══════════
@@ -808,6 +818,76 @@ async function cancelVisitor(id){
     render();toast('已取消預約，系統將寄送通知信');
   }catch(e){toast('取消失敗：'+(e.message||e));}
 }
+// ═══════════ 會員自助儲值申請（方案 → 發票 → 匯款末五碼 → 管理員核准後入帳） ═══════════
+function topupChip(st){return st==='approved'?'<span class="chip chip-confirmed">已入帳</span>':st==='rejected'?'<span class="chip chip-rejected">未通過</span>':'<span class="chip chip-pending">審核中</span>';}
+function memberTopupListHTML(){
+  const list=Object.entries(S.memberTopups||{}).map(([id,t])=>({id,...t})).sort((a,b)=>(b.c||0)-(a.c||0)).slice(0,10);
+  return list.length?list.map(t=>`<div class="list-item">
+    <div class="list-main"><b>${t.h} 小時・NT$${t.amount}</b><div class="list-sub">${new Date(t.c||0).toLocaleString('zh-TW')}${t.st==='rejected'&&t.reason?`・${esc(t.reason)}`:''}</div></div>
+    ${topupChip(t.st)}
+  </div>`).join(''):'<p class="hint">尚無儲值申請。按上方「儲值時數」即可線上申請。</p>';
+}
+function openTopupModal(){
+  if(!S.memberCode||!S.memberPub)return;
+  S.topup={inv:false,taxId:'',title:'',last5:''};
+  renderTopupModal();openModal('modal-topup');
+}
+function renderTopupModal(){
+  const t=S.topup;if(!t)return;
+  const m=S.memberPub,type=memType(m.type),c=MEMBER_TYPES[type],pkg=pkgFor(type),days=grantDaysFor(type);
+  const {base,tax,amt}=calcAmount(pkg.hours,pkg.price/pkg.hours,t.inv);
+  const expStr=fmtD(addD(today,days));
+  const dayTxt=days%365===0?`${days/365} 年`:`${days} 天`;
+  document.getElementById('topup-body').innerHTML=`
+    <h3>儲值時數 — ${esc(m.name)}</h3>
+    <div style="border:2px solid var(--brand);background:var(--brand-soft);border-radius:12px;padding:14px 16px;margin-bottom:12px">
+      <div style="font-weight:700;font-size:15px">${c.icon} ${c.label}方案</div>
+      <div style="font-size:22px;font-weight:800;margin-top:4px">${pkg.hours} 小時 <span style="color:var(--brand)">NT$${pkg.price}</span></div>
+      <div class="hint">約 NT$${Math.round(pkg.price/pkg.hours)}/小時</div>
+    </div>
+    <div class="notice" style="margin:0 0 12px">⏳ 儲值時數的使用期限為 <b>${dayTxt}</b>（入帳後至 ${expStr} 前可用），逾期未用完的時數將失效。</div>
+    <div class="f-row"><label class="pay-opt" style="margin:0"><input type="checkbox" ${t.inv?'checked':''} onchange="S.topup.inv=this.checked;renderTopupModal()"><span class="pay-txt">需要開立發票（總金額 +5%）</span></label>
+      ${t.inv?`<div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
+        <input id="tu-taxid" maxlength="8" inputmode="numeric" placeholder="統一編號（8 碼）*" value="${esc(t.taxId)}" oninput="S.topup.taxId=this.value" style="flex:1;min-width:140px">
+        <input id="tu-title" maxlength="60" placeholder="發票抬頭 *" value="${esc(t.title)}" oninput="S.topup.title=this.value" style="flex:2;min-width:180px"></div>`:''}
+    </div>
+    <div class="pay-box" style="margin-bottom:12px">
+      <div>方案費用 NT$${base}${t.inv?`　＋ 5% 稅 NT$${tax}`:''}</div>
+      <div style="font-size:18px;font-weight:800;margin-top:4px">應付金額 NT$${amt}</div>
+      <div class="hint" style="margin-top:8px">匯款帳戶：${esc(S.settings.payment.bankInfo)}</div>
+      <div style="margin-top:8px"><label style="font-size:13px;color:var(--sub)">匯款帳號末五碼 *</label>
+      <input id="tu-last5" maxlength="5" inputmode="numeric" placeholder="請先完成匯款後填寫" value="${esc(t.last5)}" oninput="S.topup.last5=this.value" style="width:100%;border:1px solid var(--line);border-radius:8px;padding:9px 12px;background:#fff"></div>
+      <p class="hint" style="margin-top:6px">送出後由管理員核對款項，核准後時數自動入帳並寄通知。</p>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn btn-sec" onclick="closeModal('modal-topup')">關閉</button>
+      <button class="btn btn-pri" id="tu-submit" onclick="submitTopup()">送出儲值申請</button>
+    </div>`;
+}
+async function submitTopup(){
+  const t=S.topup;if(!t||!S.memberCode)return;
+  const m=S.memberPub,type=memType(m.type),pkg=pkgFor(type);
+  const inv={};
+  if(t.inv){
+    const taxId=String(t.taxId||'').trim(),title=String(t.title||'').trim();
+    if(!/^\d{8}$/.test(taxId))return toast('請填寫 8 碼統一編號');
+    if(!title)return toast('請填寫發票抬頭');
+    inv.invTaxId=taxId;inv.invTitle=title.slice(0,60);
+  }
+  const last5=String(t.last5||'').trim();
+  if(!/^\d{5}$/.test(last5))return toast('請填寫匯款帳號末五碼（5 位數字）');
+  const {amt}=calcAmount(pkg.hours,pkg.price/pkg.hours,t.inv);
+  const btn=document.getElementById('tu-submit');btn.disabled=true;
+  try{
+    const id=newId(),now=Date.now();
+    await dbUpdate({
+      [`topups/${id}`]:{code:S.memberCode,name:m.name||'',type,hours:pkg.hours,price:pkg.price,amount:amt,payLast5:last5,status:'pending',createdAt:now,...inv},
+      [`memberTopups/${S.memberCode}/${id}`]:{h:pkg.hours,amount:amt,st:'pending',c:now}
+    });
+    closeModal('modal-topup');S.topup=null;
+    toast('✓ 儲值申請已送出，管理員核對款項後時數將入帳');render();
+  }catch(e){btn.disabled=false;toast('送出失敗：'+(e.message||e));}
+}
 // ═══════════ 取消申請（已確認預約 → 客人申請 → 管理員同意/駁回） ═══════════
 const startMs=(date,s)=>new Date(date+'T00:00:00').getTime()+s*60000;
 function cancelHours(){const h=+S.settings.cancelHoursBefore;return isNaN(h)?24:Math.max(0,h);}
@@ -861,7 +941,7 @@ function viewMember(){
     <div><div style="font-size:17px;font-weight:700">${esc(m.name)} ${typeChip(m.type)}</div>
       <div class="hint">目前可用時數</div></div>
     <div class="mem-quota">
-      <span class="mem-num">${fmtH(bal.total*60)}</span><span class="hint"> 小時</span>
+      <span class="mem-num">${fmtH(bal.total*60)}</span><span class="hint"> 小時</span> <button class="btn btn-pri btn-sm" style="vertical-align:4px;margin-left:8px" onclick="openTopupModal()">儲值時數</button>
       <div style="margin-top:4px">${bal.items.map(g=>`<div class="hint">・${esc(g.note||'加值')}：剩 ${fmtH(g.remain*60)} / ${g.h} 小時（${g.exp.slice(5).replace('-','/')} 到期）</div>`).join('')||'<div class="hint">目前沒有可用時數</div>'}</div>
     </div>
     <button class="btn btn-sec btn-sm" onclick="memberLogout()">登出</button>
@@ -875,6 +955,9 @@ function viewMember(){
       ${b.st==='pending'?`<button class="btn btn-bad btn-sm" onclick="cancelMemberBk('${b.id}','${b.date}','${b.ym}')">取消</button>`:b.st==='confirmed'?cancelReqHTML(b.id,b.date,b.s,b.e):''}
     </div>`).join(''):'<p class="hint">尚無預約紀錄</p>'}
     <p class="hint" style="margin-top:8px">已確認的預約可於開始前 ${cancelHours()} 小時以外線上申請取消，管理員同意後時數自動退回。</p>
+  </div>
+  <div class="card" style="margin-top:16px"><h2>我的儲值申請</h2>
+    ${memberTopupListHTML()}
   </div>`;
 }
 async function memberLogin(){
@@ -893,6 +976,7 @@ async function memberLogin(){
     else{
       _db.ref(`${ROOT}/membersPublic/${code}`).on('value',s=>{S.memberPub=s.val();render();});
       _db.ref(`${ROOT}/memberGrants/${code}`).on('value',s=>{S.memberGrantsData=s.val()||{};render();});
+      _db.ref(`${ROOT}/memberTopups/${code}`).on('value',s=>{S.memberTopups=s.val()||{};render();});
       _db.ref(`${ROOT}/memberBookings/${code}`).on('value',s=>{S.memberBk=s.val()||{};render();});
     }
     render();
@@ -903,8 +987,9 @@ function memberLogout(){
     _db.ref(`${ROOT}/membersPublic/${S.memberCode}`).off();
     _db.ref(`${ROOT}/memberGrants/${S.memberCode}`).off();
     _db.ref(`${ROOT}/memberBookings/${S.memberCode}`).off();
+    _db.ref(`${ROOT}/memberTopups/${S.memberCode}`).off();
   }
-  S.memberCode=null;S.memberPub=null;S.memberGrantsData={};S.memberBk={};render();
+  S.memberCode=null;S.memberPub=null;S.memberGrantsData={};S.memberBk={};S.memberTopups={};render();
 }
 async function cancelMemberBk(id,date,ym){
   try{
@@ -1060,7 +1145,8 @@ function viewAdmin(){
       <button class="btn btn-pri" style="width:100%" id="ad-login-btn" onclick="adminLogin()">登入</button>`}
     </div>`;
   }
-  const pendCount=Object.values(S.admin.bookings).filter(b=>b.status==='pending'||(b.status==='confirmed'&&b.cancelReq)).length;
+  const pendCount=Object.values(S.admin.bookings).filter(b=>b.status==='pending'||(b.status==='confirmed'&&b.cancelReq)).length
+    +Object.values(S.admin.topups||{}).filter(t=>t.status==='pending').length;
   const tabs=[['pending',`待審核${pendCount?`<span class="badge">${pendCount}</span>`:''}`],['overview','預約總覽'],['members','會員管理'],['settings','設定']];
   let h=`<div class="a-tabs">${tabs.map(([k,t])=>`<button class="${S.aTab===k?'on':''}" onclick="S.aTab='${k}';render()">${t}</button>`).join('')}
     <button style="margin-left:auto" onclick="adminLogout()">登出</button></div>`;
@@ -1095,7 +1181,48 @@ function adminPending(){
     <button class="btn btn-ok btn-sm" onclick="approveBooking('${b.id}')">核准</button>
     <button class="btn btn-bad btn-sm" onclick="rejectBooking('${b.id}')">婉拒</button>
   </div>`).join(''):'<p class="hint">目前沒有待審核的申請 🎉</p>'}</div>
+  ${adminTopupHTML()}
   ${adminCancelReqHTML()}`;
+}
+// ── 儲值申請（會員線上送出，核准即自動發放時數批次）──
+function adminTopupHTML(){
+  const list=Object.entries(S.admin.topups||{}).map(([id,t])=>({id,...t})).filter(t=>t.status==='pending').sort((a,b)=>(a.createdAt||0)-(b.createdAt||0));
+  return `<div class="card" style="margin-top:16px"><h2>儲值申請</h2>
+  <p class="hint" style="margin-bottom:8px">會員線上送出的儲值申請。核對匯款後按「核准入帳」，系統自動發放一筆時數批次（期限依類型設定）並通知會員；「婉拒」則通知會員未通過。</p>
+  ${list.length?list.map(t=>{const c=MEMBER_TYPES[memType(t.type)];return `<div class="list-item">
+    <div class="list-main"><b>${esc(t.name||t.code)}（${esc(t.code)}）</b> ${typeChip(t.type)}
+      <div class="list-sub">${c.label}方案 <b>${t.hours} 小時</b>・方案價 NT$${t.price}${t.invTaxId?`・🧾 發票：${esc(t.invTitle||'')} 統編 ${esc(t.invTaxId)}（含稅）`:''}</div>
+      <div class="list-sub">💰 應收 <b>NT$${t.amount}</b>・帳號末五碼 <b style="color:var(--brand)">${esc(t.payLast5||'—')}</b>・申請於 ${new Date(t.createdAt||0).toLocaleString('zh-TW')}</div></div>
+    <button class="btn btn-ok btn-sm" onclick="approveTopup('${t.id}')">核准入帳</button>
+    <button class="btn btn-bad btn-sm" onclick="rejectTopup('${t.id}')">婉拒</button>
+  </div>`;}).join(''):'<p class="hint">目前沒有儲值申請</p>'}</div>`;
+}
+async function approveTopup(id){
+  const t=(S.admin.topups||{})[id];if(!t||t.status!=='pending')return;
+  const m=S.admin.members[t.code];if(!m)return toast('找不到會員 '+t.code);
+  const type=memType(t.type||m.type),days=grantDaysFor(type),exp=fmtD(addD(today,days));
+  if(!confirm(`核准 ${t.name||t.code} 的儲值申請？\n將發放 ${t.hours} 小時（${exp} 前有效），應收 NT$${t.amount}、末五碼 ${t.payLast5}。`))return;
+  try{
+    const gid='g'+Date.now(),now=Date.now();
+    await dbUpdate({
+      [`memberGrants/${t.code}/${gid}`]:{h:t.hours,start:fmtD(today),exp,note:`${MEMBER_TYPES[type].label} ${t.hours} 小時 NT$${t.amount}（線上儲值・末五碼 ${t.payLast5}）`,at:now},
+      [`topups/${id}/status`]:'approved',[`topups/${id}/grantId`]:gid,[`topups/${id}/approvedAt`]:now,
+      [`memberTopups/${t.code}/${id}/st`]:'approved'
+    });
+    toast(`✓ 已入帳 ${t.hours} 小時（${exp} 前有效），同步程式將通知會員`);
+  }catch(e){toast('操作失敗：'+(e.message||e));}
+}
+async function rejectTopup(id){
+  const t=(S.admin.topups||{})[id];if(!t||t.status!=='pending')return;
+  const r=prompt('婉拒原因（將寄送給會員，可留空）：');
+  if(r===null)return;
+  try{
+    await dbUpdate({
+      [`topups/${id}/status`]:'rejected',[`topups/${id}/rejectReason`]:String(r).trim().slice(0,200),
+      [`memberTopups/${t.code}/${id}/st`]:'rejected',[`memberTopups/${t.code}/${id}/reason`]:String(r).trim().slice(0,200)
+    });
+    toast('已婉拒此儲值申請');
+  }catch(e){toast('操作失敗：'+(e.message||e));}
 }
 // 發票資訊（有統編＝需開發票，金額已含 5% 稅）
 function invoiceHTML(b){return b.invTaxId?`・🧾 發票：${esc(b.invTitle||'')} 統編 ${esc(b.invTaxId)}（含稅）`:'';}

@@ -207,6 +207,90 @@
         }
       }
     },
+    "topups": {
+      "$tid": {
+        ".write": "!data.exists() && newData.child('status').val() === 'pending'",
+        ".validate": "newData.hasChildren(['code','hours','price','amount','payLast5','status','createdAt']) && newData.child('code').isString() && newData.child('code').val().length <= 12 && newData.child('hours').isNumber() && newData.child('hours').val() > 0 && newData.child('hours').val() <= 500 && newData.child('price').isNumber() && newData.child('price').val() >= 0 && newData.child('amount').isNumber() && newData.child('amount').val() >= 0 && newData.child('amount').val() <= 1000000 && newData.child('payLast5').isString() && newData.child('payLast5').val().matches(/^[0-9]{5}$/) && newData.child('createdAt').isNumber()",
+        "code": {
+          ".validate": true
+        },
+        "hours": {
+          ".validate": true
+        },
+        "price": {
+          ".validate": true
+        },
+        "amount": {
+          ".validate": true
+        },
+        "payLast5": {
+          ".validate": true
+        },
+        "createdAt": {
+          ".validate": true
+        },
+        "status": {
+          ".validate": "newData.val() === 'pending' || newData.val() === 'approved' || newData.val() === 'rejected'"
+        },
+        "type": {
+          ".validate": "newData.isString() && newData.val().length <= 12"
+        },
+        "name": {
+          ".validate": "newData.isString() && newData.val().length <= 50"
+        },
+        "invTaxId": {
+          ".validate": "newData.isString() && newData.val().matches(/^[0-9]{8}$/)"
+        },
+        "invTitle": {
+          ".validate": "newData.isString() && newData.val().length <= 60"
+        },
+        "grantId": {
+          ".validate": true
+        },
+        "approvedAt": {
+          ".validate": true
+        },
+        "adminNotifiedAt": {
+          ".validate": true
+        },
+        "userNotifiedAt": {
+          ".validate": true
+        },
+        "rejectReason": {
+          ".validate": "newData.isString() && newData.val().length <= 200"
+        },
+        "$other": {
+          ".validate": false
+        }
+      }
+    },
+    "memberTopups": {
+      "$code": {
+        ".read": true,
+        "$tid": {
+          ".write": "!data.exists() && newData.child('st').val() === 'pending'",
+          ".validate": "newData.hasChildren(['h','amount','st','c']) && newData.child('h').isNumber() && newData.child('amount').isNumber() && newData.child('c').isNumber()",
+          "h": {
+            ".validate": true
+          },
+          "amount": {
+            ".validate": true
+          },
+          "c": {
+            ".validate": true
+          },
+          "st": {
+            ".validate": "newData.val() === 'pending' || newData.val() === 'approved' || newData.val() === 'rejected'"
+          },
+          "reason": {
+            ".validate": "newData.isString() && newData.val().length <= 200"
+          },
+          "$other": {
+            ".validate": false
+          }
+        }
+      }
+    },
     "meta": {}
   }
 }

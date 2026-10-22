@@ -14,6 +14,8 @@
 | 新節目儲值 / 一般方案儲值（會員） | 手機號碼查詢登入 → 看儲值時數批次與到期日 → 填節目名稱、用時數預約（**免審核**，約 1 分鐘內自動確認；姓名／電話／Email 直接帶會員資料，建會員時 Email 必填）；時數不足改匯款（依類型時薪，可勾開發票 +5%） |
 | 管理員 | Firebase 登入 → 審核匯款單（顯示金額＋末五碼）、會員 CRUD、儲值時數（有期限的批次，預設帶該類型方案時數）、系統設定（開放時段/各類型方案時數與價格、不足改匯款時薪、預設期限/日曆 ID/事件格式） |
 
+線上儲值：會員在「會員專區」按「儲值時數」→ 顯示該類型方案（時數＋價格）、使用期限提醒、可勾開發票（統編＋抬頭，+5%）、匯款資訊與末五碼 → 送出申請；管理員在「待審核 → 儲值申請」核對款項後「核准入帳」（自動發放一筆批次，期限依類型設定）或「婉拒」，Apps Script 寄通知。
+
 取消規則：審核中的預約客人可直接取消。**已確認**的預約客人可線上「申請取消」（預設開始前 24 小時內不可申請，後台「設定」可改），管理員在「待審核 → 取消申請」同意（釋出時段、退回時數、移除日曆事件、寄通知）或駁回（預約維持、通知客人）。
 
 時數規則：**沒有每月額度**，全部是儲值批次。每筆儲值有使用期限，預設＝儲值當天＋該類型「儲值預設使用期限」（出廠 365 天，後台「設定」可改）；儲值時可逐筆改日期，事後也可編輯。扣抵先用快到期的批次；預約日必須落在批次有效期內。
@@ -73,6 +75,8 @@ membersPublic/{code}            按 key 讀 {name,quota,active,type}
 memberIndex/{手機數字}          按 key 讀 → code
 memberGrants/{code}/{gid}       按 code 讀 {h,start,exp,note,at}（儲值批次）
 memberBookings/{code}/{ym}/{bid} 按 code 讀 {date,s,e,st,pay,c}（會員端算餘額）
+topups/{tid}                    admin 讀；會員線上儲值申請 {code,type,hours,price,amount,invTaxId?,invTitle?,payLast5,status,createdAt,grantId?,rejectReason?}（會員只能 create pending）
+memberTopups/{code}/{tid}       按 code 讀 {h,amount,st,c,reason?}（會員端看申請狀態）
 meta                            admin；lastSyncAt/lastError
 ```
 

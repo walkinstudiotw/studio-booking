@@ -8,6 +8,7 @@
 //  3. 日曆上手動建立的事件 → 匯入為 cal 占用時段（擋預約）
 //  4. Email 通知：新申請通知管理員；確認/婉拒通知預約人；
 //     客人「取消申請」通知管理員、駁回通知預約人
+//  5. 會員線上儲值申請：通知管理員核對；核准／婉拒通知會員
 //
 // ── 部署步驟 ──
 // 0) 用【walkinstudiotw@gmail.com】登入 script.google.com 建立專案
@@ -150,6 +151,7 @@ function syncTick() {
     pushToCalendar_(settings, bookings, today, upd);
     importBusyBlocks_(settings, schedule, today, windowEnd, upd);
     sendNotifications_(settings, bookings, upd);
+    notifyTopups_(settings, upd);
 
     upd['meta/lastSyncAt'] = Date.now();
     upd['meta/lastError'] = null;
@@ -372,6 +374,40 @@ function importBusyBlocks_(settings, schedule, today, windowEnd, upd) {
       var cur2 = (schedule[dd] || {})[kk2];
       var w = desired[dd][kk2];
       if (!cur2 || cur2.s !== w.s || cur2.e !== w.e) upd['schedule/' + dd + '/' + kk2] = w;
+    }
+  }
+}
+
+// 5) 會員線上儲值申請：新申請通知管理員；核准／婉拒通知會員
+function notifyTopups_(settings, upd) {
+  var topups = fbGet('topups') || {};
+  var any = false; for (var k in topups) { var t0 = topups[k]; if ((t0.status === 'pending' && !t0.adminNotifiedAt) || ((t0.status === 'approved' || t0.status === 'rejected') && !t0.userNotifiedAt)) { any = true; break; } }
+  if (!any) return;
+  var adminMail = props_().getProperty('ADMIN_EMAIL') || props_().getProperty('FB_EMAIL');
+  var room = settings.roomName || '錄音室';
+  var members = fbGet('members') || {};
+  for (var id in topups) {
+    var t = topups[id];
+    var typeZh = (MEMBER_TYPES[t.type] || MEMBER_TYPES.general) + '方案';
+    var line = typeZh + ' ' + t.hours + ' 小時・應收 NT$' + t.amount + (t.invTaxId ? '（含 5% 稅）' : '') + '・末五碼 ' + (t.payLast5 || '—');
+    var invTxt = t.invTaxId ? '\n發票：' + (t.invTitle || '') + '　統編 ' + t.invTaxId : '';
+    if (t.status === 'pending' && !t.adminNotifiedAt) {
+      GmailApp.sendEmail(adminMail, '【' + room + '】儲值申請待核對：' + (t.name || t.code),
+        '會員：' + (t.name || '') + '（' + t.code + '）\n' + line + invTxt + '\n\n請至後台「待審核 → 儲值申請」核對款項後核准入帳。', { name: room });
+      upd['topups/' + id + '/adminNotifiedAt'] = Date.now();
+    }
+    if ((t.status === 'approved' || t.status === 'rejected') && !t.userNotifiedAt) {
+      var mail = (members[t.code] || {}).email || '';
+      if (mail) {
+        if (t.status === 'approved') {
+          GmailApp.sendEmail(mail, '【' + room + '】儲值已入帳：' + t.hours + ' 小時',
+            (t.name || '') + ' 您好，\n\n您的儲值申請已核准，' + t.hours + ' 小時已入帳：\n\n　' + line + invTxt + '\n\n前往 ' + SITE_URL + ' 的「會員專區」即可查看可用時數與到期日並預約。\n\n' + room + ' 敬上', { name: room });
+        } else {
+          GmailApp.sendEmail(mail, '【' + room + '】儲值申請未通過',
+            (t.name || '') + ' 您好，\n\n很抱歉，您的儲值申請未能通過：\n\n　' + line + '\n　原因：' + (t.rejectReason || '款項核對未通過') + '\n\n如有匯款，我們將與您聯繫；如有疑問請直接與我們聯繫。\n\n' + room + ' 敬上', { name: room });
+        }
+      }
+      upd['topups/' + id + '/userNotifiedAt'] = Date.now();
     }
   }
 }
