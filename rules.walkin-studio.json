@@ -118,6 +118,15 @@
         "cancelDenied": {
           ".validate": true
         },
+        "show": {
+          ".validate": "newData.isString() && newData.val().length <= 100"
+        },
+        "invTaxId": {
+          ".validate": "newData.isString() && newData.val().matches(/^[0-9]{8}$/)"
+        },
+        "invTitle": {
+          ".validate": "newData.isString() && newData.val().length <= 60"
+        },
         "$other": {
           ".validate": false
         }

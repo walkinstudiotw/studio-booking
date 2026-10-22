@@ -95,6 +95,7 @@ function renderTpl_(tpl, b) {
     .replace(/\{phone\}/g, b.phone || '')
     .replace(/\{code\}/g, b.memberCode || '')
     .replace(/\{note\}/g, b.note || '')
+    .replace(/\{show\}/g, b.show || '')
     .replace(/\{date\}/g, b.date || '')
     .replace(/\{time\}/g, fmtT_(b.s) + '–' + fmtT_(b.e));
 }
@@ -400,13 +401,15 @@ function sendNotifications_(settings, bookings, upd) {
       continue;
     }
     var when = b.date + '（' + '日一二三四五六'.charAt(new Date(b.date + 'T00:00:00').getDay()) + '）' + fmtT_(b.s) + '–' + fmtT_(b.e);
-    var payTxt = b.payMethod === 'transfer' ? ('匯款 NT$' + (b.amount || 0) + '・末五碼 ' + (b.payLast5 || '—')) : '使用會員時數';
+    var payTxt = b.payMethod === 'transfer' ? ('匯款 NT$' + (b.amount || 0) + (b.invTaxId ? '（含 5% 稅）' : '') + '・末五碼 ' + (b.payLast5 || '—')) : '使用會員時數';
+    var showTxt = '節目：' + (b.show || '—') + '\n';
+    var invTxt = b.invTaxId ? ('發票：' + (b.invTitle || '') + '　統編 ' + b.invTaxId + '\n') : '';
     // 4-0. 客人對已確認預約送出「取消申請」→ 通知管理員（後台「待審核」同意或駁回）
     if (b.status === 'confirmed' && b.cancelReq && !b.cancelReq.notifiedAt) {
       GmailApp.sendEmail(adminMail, '【' + room + '】取消申請待處理：' + when,
         '預約時段：' + when + '\n' +
         '預約人：' + (b.name || '') + '（' + (b.kind === 'm' ? '會員 ' + (b.memberCode || '') : '訪客') + '）\n' +
-        '電話：' + (b.phone || '') + '\n付款：' + payTxt + (b.payRecv ? '（已收款，取消需退款）' : '') + '\n' +
+        '電話：' + (b.phone || '') + '\n' + showTxt + '付款：' + payTxt + (b.payRecv ? '（已收款，取消需退款）' : '') + '\n' +
         '取消原因：' + (b.cancelReq.reason || '—') + '\n\n' +
         '請至後台「待審核 → 取消申請」同意或駁回。', { name: room });
       upd['bookings/' + id + '/cancelReq/notifiedAt'] = Date.now();
@@ -428,8 +431,8 @@ function sendNotifications_(settings, bookings, upd) {
       GmailApp.sendEmail(adminMail, '【' + room + '】新預約申請待審核：' + when,
         '預約時段：' + when + '\n' +
         '申請人：' + (b.name || '') + '（' + (b.kind === 'm' ? '會員 ' + (b.memberCode || '') : '訪客') + '）\n' +
-        '電話：' + (b.phone || '') + '\nEmail：' + (b.email || '—') + '\n' +
-        '付款：' + payTxt + '\n備註：' + (b.note || '—') + '\n\n' +
+        '電話：' + (b.phone || '') + '\nEmail：' + (b.email || '—') + '\n' + showTxt +
+        '付款：' + payTxt + '\n' + invTxt + '備註：' + (b.note || '—') + '\n\n' +
         '請至後台核對款項後核准。', { name: room });
       upd['bookings/' + id + '/adminNotifiedAt'] = Date.now();
     }
@@ -437,8 +440,8 @@ function sendNotifications_(settings, bookings, upd) {
     if (b.status === 'confirmed' && b.kind === 'm' && b.payMethod === 'transfer' && !b.adminNotifiedAt) {
       GmailApp.sendEmail(adminMail, '【' + room + '】會員匯款預約已成立，請核對收款：' + when,
         '預約時段：' + when + '\n' +
-        '會員：' + (b.name || '') + '（' + (b.memberCode || '') + '）\n' +
-        '應收：' + payTxt + '\n備註：' + (b.note || '—') + '\n\n' +
+        '會員：' + (b.name || '') + '（' + (b.memberCode || '') + '）\n' + showTxt +
+        '應收：' + payTxt + '\n' + invTxt + '備註：' + (b.note || '—') + '\n\n' +
         '預約已自動成立；收到款項後請至後台「預約總覽」勾選「已收款」。', { name: room });
       upd['bookings/' + id + '/adminNotifiedAt'] = Date.now();
     }
@@ -449,7 +452,7 @@ function sendNotifications_(settings, bookings, upd) {
       if (b.status === 'confirmed') {
         GmailApp.sendEmail(mail, '【' + room + '】預約已確認：' + when,
           (b.name || '') + ' 您好，\n\n您的預約已確認：\n\n' +
-          '　時段：' + when + '\n　付款：' + payTxt + '\n\n' +
+          '　時段：' + when + '\n　' + showTxt + '　付款：' + payTxt + '\n' + (invTxt ? '　' + invTxt : '') + '\n' +
           (settings.notice ? settings.notice + '\n\n' : '') + room + ' 敬上', { name: room });
       } else {
         GmailApp.sendEmail(mail, '【' + room + '】預約未能成立：' + when,

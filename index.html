@@ -182,9 +182,11 @@ table.tbl{width:100%;border-collapse:collapse;font-size:14px}
     <div class="f-row"><label>使用時長</label><select id="bk-dur" onchange="updatePayUI()"></select></div>
     <div id="bk-visitor-fields">
       <div class="f-row"><label>姓名 *</label><input id="bk-name" maxlength="50" placeholder="您的稱呼"></div>
+      <div class="f-row"><label>Email *</label><input id="bk-email" maxlength="60" type="email" placeholder="用於接收確認通知"></div>
       <div class="f-row"><label>電話 *</label><input id="bk-phone" maxlength="20" type="tel" placeholder="0912-345-678"></div>
-      <div class="f-row"><label>Email</label><input id="bk-email" maxlength="60" placeholder="用於接收確認通知（選填）"></div>
     </div>
+    <div id="bk-member-info" class="hint" style="display:none;margin:-4px 0 12px"></div>
+    <div class="f-row"><label>節目名稱 *</label><input id="bk-show" maxlength="100" placeholder="例：《節目名稱》第 12 集"></div>
     <div class="f-row" id="bk-pay"></div>
     <div class="f-row"><label>備註</label><textarea id="bk-note" maxlength="300" placeholder="用途、人數等（選填）"></textarea></div>
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
@@ -205,7 +207,7 @@ table.tbl{width:100%;border-collapse:collapse;font-size:14px}
     </select></div>
     <div class="f-row"><label>姓名 *</label><input id="me-name" maxlength="50"></div>
     <div class="f-row"><label>電話 *（會員以此查詢登入）</label><input id="me-phone" maxlength="20" type="tel"></div>
-    <div class="f-row"><label>Email</label><input id="me-email" maxlength="60"></div>
+    <div class="f-row"><label>Email *（接收預約與取消通知）</label><input id="me-email" maxlength="60" type="email"></div>
     <p class="hint" id="me-type-hint" style="margin:-4px 0 12px"></p>
     <div class="f-row"><label><input type="checkbox" id="me-active" checked style="width:auto;margin-right:6px">啟用中</label></div>
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
@@ -241,6 +243,7 @@ table.tbl{width:100%;border-collapse:collapse;font-size:14px}
       <option value="hours">⏱ 使用會員時數</option>
       <option value="transfer">💰 匯款（會員價）</option>
     </select></div>
+    <div class="f-row"><label>節目名稱</label><input id="abk-show" maxlength="100" placeholder="選填"></div>
     <div class="f-row"><label>備註</label><input id="abk-note" maxlength="300" placeholder="選填"></div>
     <div id="abk-info" style="background:#f8fafc;border:1px solid var(--line);border-radius:10px;padding:10px 14px;font-size:14px;margin-bottom:12px"></div>
     <div style="display:flex;gap:10px;justify-content:flex-end">
@@ -336,7 +339,7 @@ const DEFAULT_SETTINGS={
   calendar:{
     calendarId:'', // 錄音室專用日曆 ID，請至後台「設定」填入
     eventTitle:'【預約】{name}（{type}）',
-    eventDesc:'電話：{phone}\n備註：{note}'
+    eventDesc:'節目：{show}\n電話：{phone}\n備註：{note}'
   }
 };
 
@@ -493,8 +496,8 @@ function seedMock(){
     mockDB.schedule[nextWD(5)][cid].cr=true;
   }
   (mockDB.schedule[nextWD(1)]=mockDB.schedule[nextWD(1)]||{})['cal_demo1']={s:M(10),e:M(11),st:'confirmed',k:'cal'};
-  put(nextWD(2),M(10),M(12)+30,'m','confirmed','林小姐',{memberCode:'M001'});
-  put(nextWD(3),M(15),M(17),'v','pending','陳先生',{phone:'0933222111',email:'chen@example.com',note:'Podcast 單集錄音，2 人',payMethod:'transfer',amount:3000,payLast5:'54321'});
+  put(nextWD(2),M(10),M(12)+30,'m','confirmed','林小姐',{memberCode:'M001',show:'《水星夜話》第 12 集'});
+  put(nextWD(3),M(15),M(17),'v','pending','陳先生',{phone:'0933222111',email:'chen@example.com',note:'2 人',show:'《陳氏談話》EP03',payMethod:'transfer',amount:3150,payLast5:'54321',invTaxId:'12345678',invTitle:'陳氏傳媒有限公司'});
   (mockDB.schedule[nextWD(4)]=mockDB.schedule[nextWD(4)]||{})['cal_demo2']={s:M(13),e:M(15),st:'confirmed',k:'cal'};
   put(nextSat(),M(18),M(20),'m','confirmed','張先生',{memberCode:'M002'});
   put(D(-3),M(10),M(13),'m','confirmed','林小姐',{memberCode:'M001'});
@@ -621,15 +624,16 @@ function viewJoin(){
     <p class="hint" style="margin:6px 0 14px">${esc(S.settings.roomName)} 邀請您成為 <b>${typeName}</b>。填寫以下資料即可完成註冊：</p>
     <div class="f-row"><label>姓名 *</label><input id="jn-name" maxlength="50" placeholder="您的稱呼"></div>
     <div class="f-row"><label>手機號碼 *（之後以此登入查詢）</label><input id="jn-phone" maxlength="20" type="tel" inputmode="numeric" placeholder="0912-345-678"></div>
-    <div class="f-row"><label>Email（接收開通與預約通知，建議填寫）</label><input id="jn-email" maxlength="60" type="email"></div>
+    <div class="f-row"><label>Email *（接收開通與預約通知）</label><input id="jn-email" maxlength="60" type="email"></div>
     <button class="btn btn-pri" style="width:100%" id="jn-submit" onclick="submitJoin()">送出</button>`);
 }
 async function submitJoin(){
   const name=document.getElementById('jn-name').value.trim();
   const phone=document.getElementById('jn-phone').value.trim();
   const email=document.getElementById('jn-email').value.trim();
-  if(!name||!phone)return toast('請填寫姓名與手機號碼');
+  if(!name||!phone||!email)return toast('請填寫姓名、手機號碼與 Email');
   if(digits(phone).length<8)return toast('手機號碼格式不正確');
+  if(!EMAIL_RE.test(email))return toast('Email 格式不正確');
   const btn=document.getElementById('jn-submit');btn.disabled=true;
   try{
     await dbUpdate({[`applications/${S.joinToken}`]:{name,phone,email,createdAt:Date.now()}});
@@ -926,18 +930,23 @@ function pickSlot(dateStr,m0,role){
   for(let i=1;i<=maxSlots;i++){const d=i*slot;
     durSel.innerHTML+=`<option value="${d}">${fmtDur(d)}（${fmtT(m0)}–${fmtT(m0+d)}）</option>`;}
   document.getElementById('bk-visitor-fields').style.display=role==='member'?'none':'block';
-  ['bk-name','bk-phone','bk-email','bk-note'].forEach(id=>document.getElementById(id).value='');
-  S.pick.payMethod=null;S.pick.last5='';
+  const mi=document.getElementById('bk-member-info');
+  if(role==='member'&&S.memberPub){mi.style.display='block';mi.textContent=`預約人：${S.memberPub.name}（會員 ${S.memberCode}，姓名／電話／Email 直接帶入會員資料）`;}else mi.style.display='none';
+  ['bk-name','bk-phone','bk-email','bk-show','bk-note'].forEach(id=>document.getElementById(id).value='');
+  S.pick.payMethod=null;S.pick.last5='';S.pick.inv=false;S.pick.invTaxId='';S.pick.invTitle='';
   updatePayUI();
   document.getElementById('bk-submit').disabled=false;
   openModal('modal-book');
 }
 function setPayM(v){S.pick.payMethod=v;updatePayUI();}
+// 匯款金額：基本 = 時數 × 時薪；勾發票 → 加 5% 稅（用時數付款不適用）
+function calcAmount(hrs,rate,inv){const base=Math.round(hrs*rate);const tax=inv?Math.round(base*0.05):0;return {base,tax,amt:base+tax};}
+const EMAIL_RE=/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 function updatePayUI(){
   const p=S.pick;if(!p)return;
   const dur=+document.getElementById('bk-dur').value||0;
   const hrs=dur/60, rate=rateFor(p.role,S.memberPub&&S.memberPub.type);
-  const amt=Math.round(hrs*rate);
+  const {base,tax,amt}=calcAmount(hrs,rate,p.inv);
   let leftH=0, canHours=false;
   if(p.role==='member'){
     leftH=availForDate(S.memberCode,p.date);
@@ -957,8 +966,12 @@ function updatePayUI(){
   }
   if(method==='transfer'){
     h+=`<div class="pay-box">
-      金額 <b>NT$${amt}</b><span class="hint">（${fmtDur(dur)} × NT$${rate}/小時）</span><br>
+      金額 <b>NT$${amt}</b><span class="hint">（${fmtDur(dur)} × NT$${rate}/小時${p.inv?` ＝ NT$${base}，＋5% 稅 NT$${tax}`:''}）</span><br>
       <span class="hint">匯款帳戶：${esc(S.settings.payment.bankInfo)}</span>
+      <div style="margin-top:8px"><label class="pay-opt" style="margin:0"><input type="checkbox" ${p.inv?'checked':''} onchange="S.pick.inv=this.checked;updatePayUI()"><span class="pay-txt">需要開立發票（總金額 +5%）</span></label></div>
+      ${p.inv?`<div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">
+        <input id="bk-inv-taxid" maxlength="8" inputmode="numeric" placeholder="統一編號（8 碼）*" value="${esc(p.invTaxId||'')}" oninput="S.pick.invTaxId=this.value" style="flex:1;min-width:140px;border:1px solid var(--line);border-radius:8px;padding:9px 12px">
+        <input id="bk-inv-title" maxlength="60" placeholder="發票抬頭 *" value="${esc(p.invTitle||'')}" oninput="S.pick.invTitle=this.value" style="flex:2;min-width:180px;border:1px solid var(--line);border-radius:8px;padding:9px 12px"></div>`:''}
       <div style="margin-top:8px"><label style="font-size:13px;color:var(--sub)">匯款帳號末五碼 *</label>
       <input id="bk-last5" maxlength="5" inputmode="numeric" placeholder="請先完成匯款後填寫" value="${esc(p.last5||'')}" oninput="S.pick.last5=this.value" style="width:100%;border:1px solid var(--line);border-radius:8px;padding:9px 12px"></div>
       <p class="hint" style="margin-top:6px">${p.role==='member'?'會員預約直接成立免審核；請記得完成匯款，款項由工作室內部核對。':'送出後由管理員核對款項，確認後即完成預約。'}</p>
@@ -972,11 +985,21 @@ async function submitBooking(){
   const dur=+document.getElementById('bk-dur').value;
   if(!dur)return toast('此時段目前無法預約');
   const note=document.getElementById('bk-note').value.trim();
+  const show=document.getElementById('bk-show').value.trim();
+  if(!show)return toast('請填寫節目名稱');
   for(let i=0;i<dur/slot;i++)if(slotState(p.date,p.m+i*slot,p.role).st!=='free')return toast('時段已被搶先預約，請重新選擇');
   const method=p.role==='member'?(p.payMethod||'transfer'):'transfer';
-  const amt=Math.round(dur/60*rateFor(p.role,S.memberPub&&S.memberPub.type));
+  const inv=method==='transfer'&&!!p.inv; // 用時數付款不開發票
+  const {amt}=calcAmount(dur/60,rateFor(p.role,S.memberPub&&S.memberPub.type),inv);
   let payLast5='';
+  const invFields={};
   if(method==='transfer'){
+    if(inv){
+      const taxId=String(p.invTaxId||'').trim(),title=String(p.invTitle||'').trim();
+      if(!/^\d{8}$/.test(taxId))return toast('請填寫 8 碼統一編號');
+      if(!title)return toast('請填寫發票抬頭');
+      invFields.invTaxId=taxId;invFields.invTitle=title.slice(0,60);
+    }
     payLast5=(document.getElementById('bk-last5')?.value||'').trim();
     if(!/^\d{5}$/.test(payLast5))return toast('請填寫匯款帳號末五碼（5 位數字）');
   }
@@ -990,8 +1013,8 @@ async function submitBooking(){
         if(dur/60>left){btn.disabled=false;return toast(`該日可用時數不足（剩 ${fmtH(Math.max(0,left)*60)} 小時），請改用匯款`);}
       }
       const m=S.memberPub;
-      const bk={date:p.date,s:p.m,e:p.m+dur,kind:'m',status:'pending',name:m.name||'',phone:'',email:'',note,
-        memberCode:S.memberCode,payMethod:method,amount:method==='transfer'?amt:0,payLast5,createdAt:Date.now()};
+      const bk={date:p.date,s:p.m,e:p.m+dur,kind:'m',status:'pending',name:m.name||'',phone:'',email:'',note,show,
+        memberCode:S.memberCode,payMethod:method,amount:method==='transfer'?amt:0,payLast5,createdAt:Date.now(),...invFields};
       await dbUpdate({
         [`bookings/${id}`]:bk,
         [`schedule/${p.date}/${id}`]:{s:bk.s,e:bk.e,st:'pending',k:'m'},
@@ -1004,10 +1027,12 @@ async function submitBooking(){
     }else{
       const name=document.getElementById('bk-name').value.trim();
       const phone=document.getElementById('bk-phone').value.trim();
-      if(!name||!phone){btn.disabled=false;return toast('請填寫姓名與電話');}
       const email=document.getElementById('bk-email').value.trim();
-      const bk={date:p.date,s:p.m,e:p.m+dur,kind:'v',status:'pending',name,phone,email,note,
-        payMethod:'transfer',amount:amt,payLast5,createdAt:Date.now()};
+      if(!name||!phone||!email){btn.disabled=false;return toast('請填寫姓名、Email 與電話');}
+      if(!EMAIL_RE.test(email)){btn.disabled=false;return toast('Email 格式不正確');}
+      if(digits(phone).length<8){btn.disabled=false;return toast('電話格式不正確');}
+      const bk={date:p.date,s:p.m,e:p.m+dur,kind:'v',status:'pending',name,phone,email,note,show,
+        payMethod:'transfer',amount:amt,payLast5,createdAt:Date.now(),...invFields};
       await dbUpdate({
         [`bookings/${id}`]:bk,
         [`schedule/${p.date}/${id}`]:{s:bk.s,e:bk.e,st:'pending',k:'v'}
@@ -1065,12 +1090,15 @@ function adminPending(){
   ${list.length?list.map(b=>`<div class="list-item">
     <div class="list-main"><b>${b.date}（週${DAY_ZH[new Date(b.date+'T00:00:00').getDay()]}）${fmtT(b.s)}–${fmtT(b.e)}</b> ${b.kind==='m'?'<span class="chip chip-m">會員</span>':'<span class="chip chip-v">訪客</span>'}
       <div class="list-sub">${esc(b.name)}｜${esc(b.phone)}${b.email?'｜'+esc(b.email):''}${b.note?'｜'+esc(b.note):''}</div>
-      <div class="list-sub">${b.payMethod==='transfer'?`💰 匯款 <b>NT$${b.amount}</b>・帳號末五碼 <b style="color:var(--brand)">${esc(b.payLast5||'—')}</b>`:'⏱ 使用會員時數（等待系統自動確認）'}</div></div>
+      ${b.show?`<div class="list-sub">🎙 ${esc(b.show)}</div>`:''}
+      <div class="list-sub">${b.payMethod==='transfer'?`💰 匯款 <b>NT$${b.amount}</b>・帳號末五碼 <b style="color:var(--brand)">${esc(b.payLast5||'—')}</b>${invoiceHTML(b)}`:'⏱ 使用會員時數（等待系統自動確認）'}</div></div>
     <button class="btn btn-ok btn-sm" onclick="approveBooking('${b.id}')">核准</button>
     <button class="btn btn-bad btn-sm" onclick="rejectBooking('${b.id}')">婉拒</button>
   </div>`).join(''):'<p class="hint">目前沒有待審核的申請 🎉</p>'}</div>
   ${adminCancelReqHTML()}`;
 }
+// 發票資訊（有統編＝需開發票，金額已含 5% 稅）
+function invoiceHTML(b){return b.invTaxId?`・🧾 發票：${esc(b.invTitle||'')} 統編 ${esc(b.invTaxId)}（含稅）`:'';}
 // ── 取消申請（客人對已確認預約提出，管理員同意或駁回）──
 function adminCancelReqHTML(){
   const list=Object.entries(S.admin.bookings).map(([id,b])=>({id,...b}))
@@ -1080,7 +1108,8 @@ function adminCancelReqHTML(){
   ${list.length?list.map(b=>`<div class="list-item">
     <div class="list-main"><b>${b.date}（週${DAY_ZH[new Date(b.date+'T00:00:00').getDay()]}）${fmtT(b.s)}–${fmtT(b.e)}</b> ${b.kind==='m'?'<span class="chip chip-m">會員</span>':'<span class="chip chip-v">訪客</span>'}
       <div class="list-sub">${esc(b.name)}${b.memberCode?`（${esc(b.memberCode)}）`:''}｜${esc(b.phone||'—')}${b.email?'｜'+esc(b.email):''}</div>
-      <div class="list-sub">${b.payMethod==='transfer'?`💰 匯款 NT$${b.amount}${b.payRecv?'（已收款，取消需退款）':'（未標記收款）'}`:'⏱ 使用會員時數（同意後自動退回）'}</div>
+      ${b.show?`<div class="list-sub">🎙 ${esc(b.show)}</div>`:''}
+      <div class="list-sub">${b.payMethod==='transfer'?`💰 匯款 NT$${b.amount}${b.payRecv?'（已收款，取消需退款）':'（未標記收款）'}${invoiceHTML(b)}`:'⏱ 使用會員時數（同意後自動退回）'}</div>
       <div class="list-sub">申請於 ${new Date(b.cancelReq.at||0).toLocaleString('zh-TW')}${b.cancelReq.reason?`・原因：${esc(b.cancelReq.reason)}`:''}</div></div>
     <button class="btn btn-bad btn-sm" onclick="approveCancelReq('${b.id}')">同意取消</button>
     <button class="btn btn-sec btn-sm" onclick="denyCancelReq('${b.id}')">駁回</button>
@@ -1169,9 +1198,9 @@ function adminOverview(){
   <div style="overflow-x:auto"><table class="tbl"><tr><th>日期</th><th>時段</th><th>類型</th><th>對象</th><th>付款</th><th>狀態</th><th></th></tr>
   ${rows.map(b=>`<tr><td>${b.date}（${DAY_ZH[new Date(b.date+'T00:00:00').getDay()]}）</td><td>${fmtT(b.s)}–${fmtT(b.e)}</td>
     <td>${b.kind==='m'?'<span class="chip chip-m">會員</span>':b.kind==='v'?'<span class="chip chip-v">訪客</span>':'<span class="chip chip-cancelled">日曆</span>'}</td>
-    <td>${b.kind==='cal'?'Google 日曆事件':esc(b.name)+(b.memberCode?`（${esc(b.memberCode)}）`:'')}</td>
+    <td>${b.kind==='cal'?'Google 日曆事件':esc(b.name)+(b.memberCode?`（${esc(b.memberCode)}）`:'')+(b.show?`<div class="hint">🎙 ${esc(b.show)}</div>`:'')}</td>
     <td class="hint">${b.kind==='cal'?'—':b.payMethod==='transfer'
-      ?`NT$${b.amount}・末五碼 ${esc(b.payLast5||'—')}${b.status==='confirmed'?`<br><label style="cursor:pointer;color:${b.payRecv?'var(--ok)':'var(--bad)'};font-weight:600"><input type="checkbox" ${b.payRecv?'checked':''} onchange="setPayRecv('${b.id}',this.checked)" style="width:auto;accent-color:var(--ok)"> 已收款</label>`:''}`
+      ?`NT$${b.amount}${b.invTaxId?'（含稅・開發票）':''}・末五碼 ${esc(b.payLast5||'—')}${b.status==='confirmed'?`<br><label style="cursor:pointer;color:${b.payRecv?'var(--ok)':'var(--bad)'};font-weight:600"><input type="checkbox" ${b.payRecv?'checked':''} onchange="setPayRecv('${b.id}',this.checked)" style="width:auto;accent-color:var(--ok)"> 已收款</label>`:''}`
       :'時數'}</td>
     <td>${b.kind==='cal'?'—':chip(b.status)}${b.status==='confirmed'&&b.cancelReq?' <span class="chip chip-pending">取消申請中</span>':''}</td>
     <td>${b.kind==='cal'?'':`<button class="btn btn-bad btn-sm" onclick="adminCancelBooking('${b.id}')">取消</button>`}</td></tr>`).join('')}
@@ -1285,6 +1314,8 @@ async function saveMember(){
   for(const[c,m]of Object.entries(S.admin.members))
     if(c!==code&&digits(m.phone)===phoneKey)return toast(`此手機已屬於會員 ${c}`);
   const email=document.getElementById('me-email').value.trim();
+  if(!email)return toast('請填寫 Email（會員預約時直接帶入，用於寄送通知）');
+  if(!EMAIL_RE.test(email))return toast('Email 格式不正確');
   const type=memType(document.getElementById('me-type').value);
   const quota=0; // 錄音室無月額度，欄位保留 0 以維持資料形狀
   const active=document.getElementById('me-active').checked;
@@ -1315,6 +1346,7 @@ function openAdminBooking(code){
   document.getElementById('abk-dur').value='60';
   document.getElementById('abk-pay').value='hours';
   document.getElementById('abk-note').value='';
+  document.getElementById('abk-show').value='';
   updateAbkInfo();
   openModal('modal-abk');
 }
@@ -1354,6 +1386,7 @@ async function submitAdminBooking(){
   const dur=+document.getElementById('abk-dur').value;
   const pay=document.getElementById('abk-pay').value;
   const note=document.getElementById('abk-note').value.trim();
+  const show=document.getElementById('abk-show').value.trim();
   if(!date)return toast('請選擇日期');
   const e=s+dur;
   if(e>1440)return toast('時段跨日，請調整');
@@ -1366,7 +1399,7 @@ async function submitAdminBooking(){
     const ym=date.slice(0,7);
     const amt=pay==='transfer'?Math.round(dur/60*rateFor('member',m.type)):0;
     await dbUpdate({
-      [`bookings/${id}`]:{date,s,e,kind:'m',status:'confirmed',name:m.name||'',phone:'',email:'',note,
+      [`bookings/${id}`]:{date,s,e,kind:'m',status:'confirmed',name:m.name||'',phone:'',email:'',note,show,
         memberCode:code,payMethod:pay,amount:amt,payLast5:'',createdAt:Date.now(),adminNotifiedAt:Date.now()},
       [`schedule/${date}/${id}`]:{s,e,st:'confirmed',k:'m'},
       [`memberBookings/${code}/${ym}/${id}`]:{date,s,e,st:'confirmed',pay:pay==='transfer'?'t':'h',c:Date.now()}
@@ -1477,11 +1510,12 @@ function renderEventText(tpl,b){
     .replace(/\{phone\}/g,b.phone||'')
     .replace(/\{code\}/g,b.memberCode||'')
     .replace(/\{note\}/g,b.note||'')
+    .replace(/\{show\}/g,b.show||'')
     .replace(/\{date\}/g,b.date||'')
     .replace(/\{time\}/g,`${fmtT(b.s)}–${fmtT(b.e)}`);
 }
 function updateEventPreview(){
-  const sample={kind:'v',name:'王小明',phone:'0955000111',note:'Podcast 錄音',date:fmtD(today),s:M(14),e:M(16)};
+  const sample={kind:'v',name:'王小明',phone:'0955000111',note:'2 人',show:'《水星夜話》第 12 集',date:fmtD(today),s:M(14),e:M(16)};
   const t=document.getElementById('set-ev-title'),d=document.getElementById('set-ev-desc'),p=document.getElementById('ev-preview');
   if(t&&d&&p)p.innerHTML=`<b>${esc(renderEventText(t.value,sample))}</b><br>${esc(renderEventText(d.value,sample)).replace(/\n/g,'<br>')}`;
 }
@@ -1528,7 +1562,7 @@ function adminSettings(){
     <div class="f-row"><label>同步日曆 ID</label><input id="set-cal-id" value="${esc(st.calendar.calendarId)}" placeholder="xxxx@group.calendar.google.com" style="font-family:monospace;font-size:13px"></div>
     <div class="f-row"><label>Event 標題格式</label><input id="set-ev-title" value="${esc(st.calendar.eventTitle)}" oninput="updateEventPreview()"></div>
     <div class="f-row"><label>Event 說明格式</label><textarea id="set-ev-desc" oninput="updateEventPreview()">${esc(st.calendar.eventDesc)}</textarea></div>
-    <p class="hint">可用變數：<code>{name}</code> 姓名、<code>{type}</code> 會員/訪客、<code>{phone}</code> 電話、<code>{code}</code> 會員編號、<code>{note}</code> 備註、<code>{date}</code> 日期、<code>{time}</code> 時段</p>
+    <p class="hint">可用變數：<code>{name}</code> 姓名、<code>{type}</code> 會員/訪客、<code>{phone}</code> 電話、<code>{code}</code> 會員編號、<code>{show}</code> 節目名稱、<code>{note}</code> 備註、<code>{date}</code> 日期、<code>{time}</code> 時段</p>
     <div style="background:var(--brand-soft);border-radius:10px;padding:10px 14px;margin-top:8px;font-size:14px">
       <span class="hint">預覽（示範資料）：</span><div id="ev-preview" style="margin-top:4px"></div>
     </div>
