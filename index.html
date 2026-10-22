@@ -327,8 +327,11 @@ const DEFAULT_SETTINGS={
   payment:{
     hourlyRate:1500, // 單次預約（訪客）時薪 — 請至後台「設定」調整
     bankInfo:'（請至後台設定匯款帳戶資訊）',
-    // 儲值會員類型：各自的時薪（時數不足改匯款時用）與儲值時數預設使用期限（天）
-    types:{program:{hourlyRate:1000,grantDays:365},general:{hourlyRate:1200,grantDays:365}}
+    // 儲值會員類型：方案（時數＋價格）、時數不足改匯款時的時薪、儲值時數預設使用期限（天）
+    types:{
+      program:{pkgHours:8, pkgPrice:2600, hourlyRate:325, grantDays:365},   // 新節目儲值：8 小時 NT$2600
+      general:{pkgHours:10,pkgPrice:5500,hourlyRate:550, grantDays:365}    // 一般方案儲值：10 小時 NT$5500
+    }
   },
   calendar:{
     calendarId:'', // 錄音室專用日曆 ID，請至後台「設定」填入
@@ -424,8 +427,12 @@ function mergeSettings(v){ // DB 值疊在預設值上，缺欄位不炸
   out.openHours.visitor=Object.assign(d.openHours.visitor,(v.openHours||{}).visitor||{});
   out.openHours.member=Object.assign(d.openHours.member,(v.openHours||{}).member||{});
   out.payment=Object.assign(d.payment,v.payment||{});
-  out.payment.types=Object.assign({},d.payment.types);
-  for(const k of Object.keys(MEMBER_TYPES))out.payment.types[k]=Object.assign({},d.payment.types[k],((v.payment||{}).types||{})[k]||{});
+  // 注意：上面的 Object.assign 已讓 d.payment.types 被 DB 值覆蓋，預設值要另外從 DEFAULT_SETTINGS 取
+  // 且 out.payment 與 v.payment 是同一物件，先把 DB 的 types 取出再重建，避免覆蓋
+  const dt=DEFAULT_SETTINGS.payment.types, vt=(v.payment||{}).types||{};
+  const types={};
+  for(const k of Object.keys(MEMBER_TYPES))types[k]=Object.assign({},dt[k],vt[k]||{});
+  out.payment.types=types;
   out.calendar=Object.assign(d.calendar,v.calendar||{});
   // Firebase 不存 null 欄位：openHours 缺的星期補 null（=不開放）
   for(const r of ['visitor','member'])for(const k of DAY_KEYS)if(!(k in out.openHours[r]))out.openHours[r][k]=null;
@@ -551,6 +558,9 @@ function rateFor(role,type){
 }
 // 儲值時數預設使用期限（天），依會員類型；後台設定頁可改
 function grantDaysFor(type){const d=+typeCfg(type).grantDays;return d>0?d:365;}
+// 方案：{hours,price}（未設定時 hours 10、price 0）
+function pkgFor(type){const c=typeCfg(type);const h=+c.pkgHours>0?+c.pkgHours:10;const p=+c.pkgPrice>0?+c.pkgPrice:0;return {hours:h,price:p};}
+function pkgLabel(type){const p=pkgFor(type);return `${p.hours} 小時${p.price?` NT$${p.price}`:''}`;}
 // ═══════════ 時段狀態 ═══════════
 function hoursOf(role,dateStr){
   const d=new Date(dateStr+'T00:00:00');
@@ -1246,7 +1256,7 @@ async function delInvite(t){
 function memTypeChanged(){
   const t=memType(document.getElementById('me-type').value);
   document.getElementById('me-type-hint').textContent=
-    `${MEMBER_TYPES[t].label}：時數不足改匯款時 NT$${rateFor('member',t)}/小時；儲值時數預設使用期限 ${grantDaysFor(t)} 天（可於「設定」調整）。無月額度，時數請用「儲值」發放。`;
+    `${MEMBER_TYPES[t].label}：方案 ${pkgLabel(t)}；時數不足改匯款時 NT$${rateFor('member',t)}/小時；儲值時數預設使用期限 ${grantDaysFor(t)} 天（可於「設定」調整）。無月額度，時數請用「儲值」發放。`;
 }
 function openMemModal(code){
   S.editMemCode=code;
@@ -1395,10 +1405,11 @@ function openGrantModal(code){
   const m=S.admin.members[code]||{};
   const days=grantDaysFor(m.type);
   document.getElementById('grant-title').textContent=`儲值／調整時數 — ${m.name||code}（${MEMBER_TYPES[memType(m.type)].label}）`;
-  document.getElementById('gr-h').value=10;
+  const pkg=pkgFor(m.type);
+  document.getElementById('gr-h').value=pkg.hours; // 預設帶該類型方案時數（可改）
   document.getElementById('gr-exp').value=fmtD(addD(today,days)); // 預設期限依類型設定（可改）
-  document.getElementById('gr-note').value='';
-  document.getElementById('gr-note').placeholder=`例：儲值 10 小時方案（預設 ${days} 天）/ 誤發修正`;
+  document.getElementById('gr-note').value=`${MEMBER_TYPES[memType(m.type)].label} ${pkgLabel(m.type)}`;
+  document.getElementById('gr-note').placeholder=`例：${MEMBER_TYPES[memType(m.type)].label} ${pkgLabel(m.type)} / 誤發修正`;
   document.getElementById('gr-save-btn').textContent='發放';
   renderGrantList();openModal('modal-grant');
 }
@@ -1505,11 +1516,13 @@ function adminSettings(){
       <div class="f-row" style="flex:1;min-width:260px"><label>匯款帳戶資訊（顯示於預約表單）</label><input id="set-bank" value="${esc(st.payment.bankInfo)}"></div>
     </div>
     <div class="sec-title">🎙 儲值會員類型</div>
-    <p class="hint" style="margin-bottom:8px">各類型的時薪（時數不足改匯款時計價）與儲值時數的預設使用期限；儲值時可逐筆改期限，事後也可編輯。</p>
+    <p class="hint" style="margin-bottom:8px">各類型的方案（儲值時預設帶入方案時數）、時數不足改匯款時的每小時費用（留空＝方案價格÷時數）、儲值時數的預設使用期限；儲值時可逐筆改時數與期限，事後也可編輯。</p>
     ${Object.entries(MEMBER_TYPES).map(([k,c])=>{const t=st.payment.types[k]||{};return `<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end">
-      <div class="f-row" style="width:140px"><label>&nbsp;</label><div style="font-weight:700;padding:9px 0">${c.icon} ${c.label}</div></div>
-      <div class="f-row" style="width:160px"><label>每小時費用（NT$）</label><input id="set-t-${k}-rate" type="number" min="0" value="${t.hourlyRate??''}"></div>
-      <div class="f-row" style="width:180px"><label>儲值預設使用期限（天）</label><input id="set-t-${k}-days" type="number" min="1" max="3650" value="${t.grantDays||365}"></div>
+      <div class="f-row" style="width:130px"><label>&nbsp;</label><div style="font-weight:700;padding:9px 0">${c.icon} ${c.label}</div></div>
+      <div class="f-row" style="width:120px"><label>方案時數（小時）</label><input id="set-t-${k}-hours" type="number" min="1" max="500" value="${t.pkgHours||''}"></div>
+      <div class="f-row" style="width:130px"><label>方案價格（NT$）</label><input id="set-t-${k}-price" type="number" min="0" value="${t.pkgPrice??''}"></div>
+      <div class="f-row" style="width:150px"><label>不足改匯款每小時（NT$）</label><input id="set-t-${k}-rate" type="number" min="0" value="${t.hourlyRate??''}"></div>
+      <div class="f-row" style="width:160px"><label>儲值預設使用期限（天）</label><input id="set-t-${k}-days" type="number" min="1" max="3650" value="${t.grantDays||365}"></div>
     </div>`;}).join('')}
     <div class="sec-title">📆 Google 日曆同步</div>
     <div class="f-row"><label>同步日曆 ID</label><input id="set-cal-id" value="${esc(st.calendar.calendarId)}" placeholder="xxxx@group.calendar.google.com" style="font-family:monospace;font-size:13px"></div>
@@ -1535,8 +1548,12 @@ async function saveSettings(){
   delete st.payment.memberHourlyRate;
   st.payment.types=st.payment.types||{};
   for(const k of Object.keys(MEMBER_TYPES)){
+    const pkgHours=Math.min(500,Math.max(1,+document.getElementById(`set-t-${k}-hours`).value||10));
+    const pkgPrice=Math.max(0,+document.getElementById(`set-t-${k}-price`).value||0);
+    const rateIn=document.getElementById(`set-t-${k}-rate`).value.trim();
     st.payment.types[k]={
-      hourlyRate:Math.max(0,+document.getElementById(`set-t-${k}-rate`).value||0),
+      pkgHours,pkgPrice,
+      hourlyRate:rateIn===''?Math.round(pkgPrice/pkgHours):Math.max(0,+rateIn||0), // 留空＝方案價÷時數
       grantDays:Math.min(3650,Math.max(1,+document.getElementById(`set-t-${k}-days`).value||365))
     };
   }

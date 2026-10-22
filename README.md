@@ -12,7 +12,7 @@
 |---|---|
 | 單次預約（訪客） | 看可預約時段（訪客開放時段）→ 匯款（NT$/hr）＋填帳號末五碼 → 送出申請 → 管理員核對後成立；單次最長 8 小時 |
 | 新節目儲值 / 一般方案儲值（會員） | 手機號碼查詢登入 → 看儲值時數批次與到期日 → 用時數預約（**免審核**，約 1 分鐘內自動確認）；時數不足改匯款（依類型時薪） |
-| 管理員 | Firebase 登入 → 審核匯款單（顯示金額＋末五碼）、會員 CRUD、儲值時數（有期限的批次）、系統設定（開放時段/各類型費率與預設期限/日曆 ID/事件格式） |
+| 管理員 | Firebase 登入 → 審核匯款單（顯示金額＋末五碼）、會員 CRUD、儲值時數（有期限的批次，預設帶該類型方案時數）、系統設定（開放時段/各類型方案時數與價格、不足改匯款時薪、預設期限/日曆 ID/事件格式） |
 
 取消規則：審核中的預約客人可直接取消。**已確認**的預約客人可線上「申請取消」（預設開始前 24 小時內不可申請，後台「設定」可改），管理員在「待審核 → 取消申請」同意（釋出時段、退回時數、移除日曆事件、寄通知）或駁回（預約維持、通知客人）。
 
@@ -62,7 +62,7 @@ Push 到 `main` → GitHub Pages（Settings → Pages → Deploy from branch →
 ```
 settings                        公開讀；roomName/notice/slotMinutes/bookingWindowDays/
                                 openHours{visitor,member}/
-                                payment{hourlyRate,bankInfo,types{program|general:{hourlyRate,grantDays}}}/
+                                payment{hourlyRate,bankInfo,types{program|general:{pkgHours,pkgPrice,hourlyRate,grantDays}}}/
                                 calendar{calendarId,eventTitle,eventDesc}
 schedule/{date}/{bid}           公開讀 {s,e,st,k,cr?}（分鐘制；k: m|v|cal；cr=true 取消申請中，客人可對 confirmed 寫入）
 bookings/{bid}                  admin 讀；完整預約（含 PII、payLast5、calEventId、通知戳記）
