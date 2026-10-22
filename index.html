@@ -319,6 +319,7 @@ const DEFAULT_SETTINGS={
   roomName:'WalkIn 水星錄音室',
   notice:'預約後請準時抵達；如需取消請提前一天告知。',
   slotMinutes:30, bookingWindowDays:30,
+  cancelHoursBefore:24, // 已確認預約：開始前 N 小時內不可線上申請取消（0＝不限制）
   openHours:{
     visitor:{mon:[10,18],tue:[10,18],wed:[10,18],thu:[10,18],fri:[10,18],sat:null,sun:null},
     member:{mon:[9,22],tue:[9,22],wed:[9,22],thu:[9,22],fri:[9,22],sat:[10,20],sun:null}
@@ -479,6 +480,11 @@ function seedMock(){
     return id;
   };
   put(nextWD(1),M(14),M(16),'v','confirmed','王小明',{phone:'0955000111',payMethod:'transfer',amount:3000,payLast5:'88012'});
+  { // 一筆已確認＋客人已送出取消申請（示範後台「取消申請」區）
+    const cid=put(nextWD(5),M(13),M(16),'v','confirmed','李小姐',{phone:'0922111333',email:'lee@example.com',payMethod:'transfer',amount:4500,payLast5:'10203',payRecv:true});
+    mockDB.bookings[cid].cancelReq={at:Date.now()-3600000,reason:'臨時出差'};
+    mockDB.schedule[nextWD(5)][cid].cr=true;
+  }
   (mockDB.schedule[nextWD(1)]=mockDB.schedule[nextWD(1)]||{})['cal_demo1']={s:M(10),e:M(11),st:'confirmed',k:'cal'};
   put(nextWD(2),M(10),M(12)+30,'m','confirmed','林小姐',{memberCode:'M001'});
   put(nextWD(3),M(15),M(17),'v','pending','陳先生',{phone:'0933222111',email:'chen@example.com',note:'Podcast 單集錄音，2 人',payMethod:'transfer',amount:3000,payLast5:'54321'});
@@ -756,7 +762,7 @@ function viewVisitor(){
   <div class="notice">📣 ${esc(S.settings.notice)}<br><span class="hint">單次預約 NT$${S.settings.payment.hourlyRate}/小時（單次最長 ${fmtDur(MAX_MIN)}），請先匯款並於表單填寫帳號末五碼，管理員核對後即完成預約。</span></div>
   ${scheduleHTML('visitor')}
   <div class="card" style="margin-top:16px"><h2>我的預約查詢</h2>
-    <p class="hint" style="margin-bottom:6px">您在此裝置送出的預約會列在這裡（狀態即時更新）。</p>
+    <p class="hint" style="margin-bottom:6px">您在此裝置送出的預約會列在這裡（狀態即時更新）。審核中可直接取消；已確認的預約可於開始前 ${cancelHours()} 小時以外線上申請取消，由管理員同意後生效。</p>
     <div id="my-visitor-list">${myVisitorListHTML()}</div>
   </div>`;
 }
@@ -776,7 +782,7 @@ function myVisitorListHTML(){
     <div class="list-main"><b>${rec.date}（週${DAY_ZH[new Date(rec.date+'T00:00:00').getDay()]}）${fmtT(rec.s)}–${fmtT(rec.e)}</b>
     <div class="list-sub">${esc(rec.name)}｜NT$${rec.amount}・末五碼 ${esc(rec.payLast5||'—')}</div></div>
     ${chipH}
-    ${st==='pending'?`<button class="btn btn-bad btn-sm" onclick="cancelVisitor('${rec.id}')">取消</button>`:''}
+    ${st==='pending'?`<button class="btn btn-bad btn-sm" onclick="cancelVisitor('${rec.id}')">取消</button>`:st==='confirmed'?cancelReqHTML(rec.id,rec.date,rec.s,rec.e):''}
   </div>`;}).join('');
 }
 async function cancelVisitor(id){
@@ -787,6 +793,31 @@ async function cancelVisitor(id){
     S.myVisitor=S.myVisitor.filter(r=>r.id!==id);lsSet('ws.visitor',S.myVisitor);
     render();toast('已取消預約，系統將寄送通知信');
   }catch(e){toast('取消失敗：'+(e.message||e));}
+}
+// ═══════════ 取消申請（已確認預約 → 客人申請 → 管理員同意/駁回） ═══════════
+const startMs=(date,s)=>new Date(date+'T00:00:00').getTime()+s*60000;
+function cancelHours(){const h=+S.settings.cancelHoursBefore;return isNaN(h)?24:Math.max(0,h);}
+function canRequestCancel(date,s){return startMs(date,s)-Date.now()>=cancelHours()*3600000;}
+function cancelReqPending(date,id){const ent=(S.schedule[date]||{})[id];return !!(ent&&ent.cr);}
+// 客人端：已確認預約的操作區（申請取消按鈕 / 申請中 / 期限內提示）
+function cancelReqHTML(id,date,s,e){
+  if(startMs(date,e)<=Date.now())return '';
+  if(cancelReqPending(date,id))return '<span class="chip chip-pending">取消申請中</span>';
+  if(canRequestCancel(date,s))return `<button class="btn btn-sec btn-sm" onclick="requestCancel('${id}','${date}',${s},${e})">申請取消</button>`;
+  return `<span class="hint" style="font-size:12px">開始前 ${cancelHours()} 小時內請電洽</span>`;
+}
+async function requestCancel(id,date,s,e){
+  if(cancelReqPending(date,id))return toast('已送出取消申請，請等待管理員處理');
+  if(!canRequestCancel(date,s))return toast(`開始前 ${cancelHours()} 小時內無法線上申請取消，請直接聯繫 ${S.settings.roomName}`);
+  const reason=prompt(`申請取消 ${date} ${fmtT(s)}–${fmtT(e)} 的預約\n取消原因（選填，至多 200 字）：`);
+  if(reason===null)return;
+  try{
+    await dbUpdate({
+      [`bookings/${id}/cancelReq`]:{at:Date.now(),reason:String(reason).trim().slice(0,200)},
+      [`schedule/${date}/${id}/cr`]:true
+    });
+    toast('✓ 已送出取消申請，管理員處理後會通知您');render();
+  }catch(err){toast('送出失敗：'+(err.message||err));}
 }
 function chip(st){
   const m={pending:['審核中','chip-pending'],confirmed:['已確認','chip-confirmed'],rejected:['已婉拒','chip-rejected'],cancelled:['已取消','chip-cancelled']};
@@ -827,8 +858,9 @@ function viewMember(){
     ${myBk.length?myBk.slice(0,10).map(b=>`<div class="list-item">
       <div class="list-main"><b>${b.date} ${fmtT(b.s)}–${fmtT(b.e)}</b><div class="list-sub">${fmtDur(b.e-b.s)}｜${b.pay==='t'?'匯款':'使用時數'}</div></div>
       ${chip(b.st)}
-      ${b.st==='pending'?`<button class="btn btn-bad btn-sm" onclick="cancelMemberBk('${b.id}','${b.date}','${b.ym}')">取消</button>`:''}
+      ${b.st==='pending'?`<button class="btn btn-bad btn-sm" onclick="cancelMemberBk('${b.id}','${b.date}','${b.ym}')">取消</button>`:b.st==='confirmed'?cancelReqHTML(b.id,b.date,b.s,b.e):''}
     </div>`).join(''):'<p class="hint">尚無預約紀錄</p>'}
+    <p class="hint" style="margin-top:8px">已確認的預約可於開始前 ${cancelHours()} 小時以外線上申請取消，管理員同意後時數自動退回。</p>
   </div>`;
 }
 async function memberLogin(){
@@ -993,7 +1025,7 @@ function viewAdmin(){
       <button class="btn btn-pri" style="width:100%" id="ad-login-btn" onclick="adminLogin()">登入</button>`}
     </div>`;
   }
-  const pendCount=Object.values(S.admin.bookings).filter(b=>b.status==='pending').length;
+  const pendCount=Object.values(S.admin.bookings).filter(b=>b.status==='pending'||(b.status==='confirmed'&&b.cancelReq)).length;
   const tabs=[['pending',`待審核${pendCount?`<span class="badge">${pendCount}</span>`:''}`],['overview','預約總覽'],['members','會員管理'],['settings','設定']];
   let h=`<div class="a-tabs">${tabs.map(([k,t])=>`<button class="${S.aTab===k?'on':''}" onclick="S.aTab='${k}';render()">${t}</button>`).join('')}
     <button style="margin-left:auto" onclick="adminLogout()">登出</button></div>`;
@@ -1026,7 +1058,49 @@ function adminPending(){
       <div class="list-sub">${b.payMethod==='transfer'?`💰 匯款 <b>NT$${b.amount}</b>・帳號末五碼 <b style="color:var(--brand)">${esc(b.payLast5||'—')}</b>`:'⏱ 使用會員時數（等待系統自動確認）'}</div></div>
     <button class="btn btn-ok btn-sm" onclick="approveBooking('${b.id}')">核准</button>
     <button class="btn btn-bad btn-sm" onclick="rejectBooking('${b.id}')">婉拒</button>
-  </div>`).join(''):'<p class="hint">目前沒有待審核的申請 🎉</p>'}</div>`;
+  </div>`).join(''):'<p class="hint">目前沒有待審核的申請 🎉</p>'}</div>
+  ${adminCancelReqHTML()}`;
+}
+// ── 取消申請（客人對已確認預約提出，管理員同意或駁回）──
+function adminCancelReqHTML(){
+  const list=Object.entries(S.admin.bookings).map(([id,b])=>({id,...b}))
+    .filter(b=>b.status==='confirmed'&&b.cancelReq).sort((a,b)=>a.date.localeCompare(b.date)||a.s-b.s);
+  return `<div class="card" style="margin-top:16px"><h2>取消申請</h2>
+  <p class="hint" style="margin-bottom:8px">客人對<b>已確認</b>的預約提出的取消申請。「同意」＝取消預約（釋出時段、退回時數、移除日曆事件並寄通知）；「駁回」＝預約維持，並通知客人。</p>
+  ${list.length?list.map(b=>`<div class="list-item">
+    <div class="list-main"><b>${b.date}（週${DAY_ZH[new Date(b.date+'T00:00:00').getDay()]}）${fmtT(b.s)}–${fmtT(b.e)}</b> ${b.kind==='m'?'<span class="chip chip-m">會員</span>':'<span class="chip chip-v">訪客</span>'}
+      <div class="list-sub">${esc(b.name)}${b.memberCode?`（${esc(b.memberCode)}）`:''}｜${esc(b.phone||'—')}${b.email?'｜'+esc(b.email):''}</div>
+      <div class="list-sub">${b.payMethod==='transfer'?`💰 匯款 NT$${b.amount}${b.payRecv?'（已收款，取消需退款）':'（未標記收款）'}`:'⏱ 使用會員時數（同意後自動退回）'}</div>
+      <div class="list-sub">申請於 ${new Date(b.cancelReq.at||0).toLocaleString('zh-TW')}${b.cancelReq.reason?`・原因：${esc(b.cancelReq.reason)}`:''}</div></div>
+    <button class="btn btn-bad btn-sm" onclick="approveCancelReq('${b.id}')">同意取消</button>
+    <button class="btn btn-sec btn-sm" onclick="denyCancelReq('${b.id}')">駁回</button>
+  </div>`).join(''):'<p class="hint">目前沒有取消申請</p>'}</div>`;
+}
+async function approveCancelReq(id){
+  const b=S.admin.bookings[id];if(!b)return;
+  if(!confirm(`同意取消 ${b.date} ${fmtT(b.s)}–${fmtT(b.e)}（${b.name}）的預約？${b.payMethod==='transfer'&&b.payRecv?'\n此單已收款，請記得處理退款。':''}`))return;
+  try{
+    const upd={
+      [`bookings/${id}/status`]:'cancelled',
+      [`schedule/${b.date}/${id}`]:null
+    };
+    if(b.memberCode)upd[`memberBookings/${b.memberCode}/${b.date.slice(0,7)}/${id}/st`]='cancelled';
+    await dbUpdate(upd);
+    toast('已同意取消，同步程式將移除日曆事件並通知客人');
+  }catch(e){toast('操作失敗：'+(e.message||e));}
+}
+async function denyCancelReq(id){
+  const b=S.admin.bookings[id];if(!b)return;
+  const r=prompt('駁回原因（將寄送給客人，可留空）：');
+  if(r===null)return;
+  try{
+    await dbUpdate({
+      [`bookings/${id}/cancelReq`]:null,
+      [`bookings/${id}/cancelDenied`]:{at:Date.now(),reason:String(r).trim().slice(0,200)},
+      [`schedule/${b.date}/${id}/cr`]:null
+    });
+    toast('已駁回，預約維持；同步程式將通知客人');
+  }catch(e){toast('操作失敗：'+(e.message||e));}
 }
 async function setPayRecv(id,checked){ // 內部收款對帳勾選（不影響預約狀態）
   try{
@@ -1089,7 +1163,7 @@ function adminOverview(){
     <td class="hint">${b.kind==='cal'?'—':b.payMethod==='transfer'
       ?`NT$${b.amount}・末五碼 ${esc(b.payLast5||'—')}${b.status==='confirmed'?`<br><label style="cursor:pointer;color:${b.payRecv?'var(--ok)':'var(--bad)'};font-weight:600"><input type="checkbox" ${b.payRecv?'checked':''} onchange="setPayRecv('${b.id}',this.checked)" style="width:auto;accent-color:var(--ok)"> 已收款</label>`:''}`
       :'時數'}</td>
-    <td>${b.kind==='cal'?'—':chip(b.status)}</td>
+    <td>${b.kind==='cal'?'—':chip(b.status)}${b.status==='confirmed'&&b.cancelReq?' <span class="chip chip-pending">取消申請中</span>':''}</td>
     <td>${b.kind==='cal'?'':`<button class="btn btn-bad btn-sm" onclick="adminCancelBooking('${b.id}')">取消</button>`}</td></tr>`).join('')}
   </table></div>
   <p class="hint" style="margin-top:10px">「日曆」列＝你在 Google 日曆手動建立的事件（每 1 分鐘同步、自動擋掉時段）。上次同步：${meta.lastSyncAt?new Date(meta.lastSyncAt).toLocaleString('zh-TW'):'尚未同步'}${meta.lastError?`　<span style="color:var(--bad)">⚠ ${esc(String(meta.lastError).slice(0,120))}</span>`:''}</p></div>`;
@@ -1419,6 +1493,7 @@ function adminSettings(){
     <div class="f-row"><label>公告（顯示於訪客頁）</label><textarea id="set-notice">${esc(st.notice)}</textarea></div>
     <div style="display:flex;gap:16px;flex-wrap:wrap">
       <div class="f-row" style="width:160px"><label>可預約未來天數</label><input id="set-window" type="number" min="1" max="365" value="${st.bookingWindowDays}"></div>
+      <div class="f-row" style="width:220px"><label>取消申請期限（開始前幾小時內不可申請）</label><input id="set-cancel-h" type="number" min="0" max="720" value="${cancelHours()}"></div>
       <div class="f-row" style="width:160px"><label>時段單位</label><select id="set-slot">
         <option value="30" ${st.slotMinutes===30?'selected':''}>30 分鐘</option>
         <option value="60" ${st.slotMinutes===60?'selected':''}>1 小時</option>
@@ -1454,6 +1529,7 @@ async function saveSettings(){
   st.roomName=document.getElementById('set-room').value.trim()||st.roomName;
   st.notice=document.getElementById('set-notice').value.trim();
   st.bookingWindowDays=+document.getElementById('set-window').value||30;
+  st.cancelHoursBefore=Math.min(720,Math.max(0,+document.getElementById('set-cancel-h').value||0));
   st.slotMinutes=+document.getElementById('set-slot').value===60?60:30;
   st.payment.hourlyRate=Math.max(0,+document.getElementById('set-rate').value||0);
   delete st.payment.memberHourlyRate;

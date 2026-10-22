@@ -14,6 +14,8 @@
 | 新節目儲值 / 一般方案儲值（會員） | 手機號碼查詢登入 → 看儲值時數批次與到期日 → 用時數預約（**免審核**，約 1 分鐘內自動確認）；時數不足改匯款（依類型時薪） |
 | 管理員 | Firebase 登入 → 審核匯款單（顯示金額＋末五碼）、會員 CRUD、儲值時數（有期限的批次）、系統設定（開放時段/各類型費率與預設期限/日曆 ID/事件格式） |
 
+取消規則：審核中的預約客人可直接取消。**已確認**的預約客人可線上「申請取消」（預設開始前 24 小時內不可申請，後台「設定」可改），管理員在「待審核 → 取消申請」同意（釋出時段、退回時數、移除日曆事件、寄通知）或駁回（預約維持、通知客人）。
+
 時數規則：**沒有每月額度**，全部是儲值批次。每筆儲值有使用期限，預設＝儲值當天＋該類型「儲值預設使用期限」（出廠 365 天，後台「設定」可改）；儲值時可逐筆改日期，事後也可編輯。扣抵先用快到期的批次；預約日必須落在批次有效期內。
 
 ## 首次啟用步驟
@@ -62,8 +64,9 @@ settings                        公開讀；roomName/notice/slotMinutes/bookingW
                                 openHours{visitor,member}/
                                 payment{hourlyRate,bankInfo,types{program|general:{hourlyRate,grantDays}}}/
                                 calendar{calendarId,eventTitle,eventDesc}
-schedule/{date}/{bid}           公開讀 {s,e,st,k}（分鐘制；k: m|v|cal）
+schedule/{date}/{bid}           公開讀 {s,e,st,k,cr?}（分鐘制；k: m|v|cal；cr=true 取消申請中，客人可對 confirmed 寫入）
 bookings/{bid}                  admin 讀；完整預約（含 PII、payLast5、calEventId、通知戳記）
+                                cancelReq{at,reason,notifiedAt}：客人對 confirmed 預約可建立一次（取消申請）；cancelDenied{at,reason,notifiedAt}：駁回紀錄
 members/{code}                  admin；完整會員資料（type: program|general；quota 恆為 0）
 membersPublic/{code}            按 key 讀 {name,quota,active,type}
 memberIndex/{手機數字}          按 key 讀 → code

@@ -221,6 +221,10 @@
             "k": {
               ".validate": true
             },
+            "cr": {
+              ".write": "!data.exists() && newData.val() === true && data.parent().child('st').val() === 'confirmed'",
+              ".validate": "newData.isBoolean()"
+            },
             "$other": {
               ".validate": false
             }
@@ -291,6 +295,25 @@
           },
           "payRecv": {
             ".validate": "newData.isBoolean()"
+          },
+          "cancelReq": {
+            ".write": "!data.exists() && newData.exists() && data.parent().child('status').val() === 'confirmed'",
+            ".validate": "newData.hasChildren(['at']) && newData.child('at').isNumber()",
+            "at": {
+              ".validate": true
+            },
+            "reason": {
+              ".validate": "newData.isString() && newData.val().length <= 200"
+            },
+            "notifiedAt": {
+              ".validate": "newData.isNumber()"
+            },
+            "$other": {
+              ".validate": false
+            }
+          },
+          "cancelDenied": {
+            ".validate": true
           },
           "$other": {
             ".validate": false

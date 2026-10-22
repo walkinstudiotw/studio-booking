@@ -6,7 +6,8 @@
 //  2. 已確認預約 → 建立 Google 日曆事件；取消/婉拒 → 刪除事件；
 //     日曆上被手動刪除的系統事件 → 預約改為取消、釋出時段
 //  3. 日曆上手動建立的事件 → 匯入為 cal 占用時段（擋預約）
-//  4. Email 通知：新申請通知管理員；確認/婉拒通知預約人
+//  4. Email 通知：新申請通知管理員；確認/婉拒通知預約人；
+//     客人「取消申請」通知管理員、駁回通知預約人
 //
 // ── 部署步驟 ──
 // 0) 用【walkinstudiotw@gmail.com】登入 script.google.com 建立專案
@@ -394,10 +395,34 @@ function sendNotifications_(settings, bookings, upd) {
       if (!b.adminNotifiedAt && b.status === 'pending') upd['bookings/' + id + '/adminNotifiedAt'] = Date.now();
       if (!b.userNotifiedAt && (b.status === 'confirmed' || b.status === 'rejected')) upd['bookings/' + id + '/userNotifiedAt'] = Date.now();
       if (!b.cancelNotifiedAt && b.status === 'cancelled') upd['bookings/' + id + '/cancelNotifiedAt'] = Date.now();
+      if (b.cancelReq && !b.cancelReq.notifiedAt) upd['bookings/' + id + '/cancelReq/notifiedAt'] = Date.now();
+      if (b.cancelDenied && !b.cancelDenied.notifiedAt) upd['bookings/' + id + '/cancelDenied/notifiedAt'] = Date.now();
       continue;
     }
     var when = b.date + '（' + '日一二三四五六'.charAt(new Date(b.date + 'T00:00:00').getDay()) + '）' + fmtT_(b.s) + '–' + fmtT_(b.e);
     var payTxt = b.payMethod === 'transfer' ? ('匯款 NT$' + (b.amount || 0) + '・末五碼 ' + (b.payLast5 || '—')) : '使用會員時數';
+    // 4-0. 客人對已確認預約送出「取消申請」→ 通知管理員（後台「待審核」同意或駁回）
+    if (b.status === 'confirmed' && b.cancelReq && !b.cancelReq.notifiedAt) {
+      GmailApp.sendEmail(adminMail, '【' + room + '】取消申請待處理：' + when,
+        '預約時段：' + when + '\n' +
+        '預約人：' + (b.name || '') + '（' + (b.kind === 'm' ? '會員 ' + (b.memberCode || '') : '訪客') + '）\n' +
+        '電話：' + (b.phone || '') + '\n付款：' + payTxt + (b.payRecv ? '（已收款，取消需退款）' : '') + '\n' +
+        '取消原因：' + (b.cancelReq.reason || '—') + '\n\n' +
+        '請至後台「待審核 → 取消申請」同意或駁回。', { name: room });
+      upd['bookings/' + id + '/cancelReq/notifiedAt'] = Date.now();
+    }
+    // 4-0b. 取消申請被駁回 → 通知預約人（預約維持）
+    if (b.cancelDenied && !b.cancelDenied.notifiedAt) {
+      var dmail = emailFor_(b);
+      if (dmail) {
+        GmailApp.sendEmail(dmail, '【' + room + '】取消申請未通過：' + when,
+          (b.name || '') + ' 您好，\n\n您對以下預約提出的取消申請未能通過，預約維持有效：\n\n' +
+          '　時段：' + when + '\n　付款：' + payTxt + '\n' +
+          (b.cancelDenied.reason ? '　說明：' + b.cancelDenied.reason + '\n' : '') +
+          '\n如有疑問請直接與我們聯繫。\n\n' + room + ' 敬上', { name: room });
+      }
+      upd['bookings/' + id + '/cancelDenied/notifiedAt'] = Date.now();
+    }
     // 4a. 新申請（待審核的匯款單）→ 通知管理員
     if (b.status === 'pending' && b.payMethod === 'transfer' && !b.adminNotifiedAt) {
       GmailApp.sendEmail(adminMail, '【' + room + '】新預約申請待審核：' + when,
@@ -436,7 +461,7 @@ function sendNotifications_(settings, bookings, upd) {
     }
     // 4c. 取消（預約人自行取消 / 後台取消 / 日曆端刪除）→ 通知管理端與預約人
     if (b.status === 'cancelled' && !b.cancelNotifiedAt) {
-      var who = (b.name || '') + (b.kind === 'm' ? '（會員 ' + (b.memberCode || '') + '）' : '（訪客）');
+      var who = (b.name || '') + (b.kind === 'm' ? '（會員 ' + (b.memberCode || '') + '）' : '（訪客）') + (b.cancelReq ? '・依預約人取消申請' : '');
       GmailApp.sendEmail(CANCEL_NOTIFY, '【' + room + '】預約已取消：' + when,
         '以下預約已取消：\n\n　時段：' + when + '\n　預約人：' + who +
         '\n　電話：' + (b.phone || '—') + '\n　付款：' + payTxt +
